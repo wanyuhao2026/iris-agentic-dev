@@ -12,6 +12,14 @@
 //!   namespace never answers. The class list falls back to
 //!   `SELECT Name FROM %Dictionary.ClassDefinition WHERE Name LIKE …`, which
 //!   answers the same question in under half a second.
+//! • `%UnitTest.Manager` differs from IRIS's enough that `iris_test`'s
+//!   IRIS-shaped `RunTest("Pkg","/verbose=1/nodelete/noload")` call never runs
+//!   a single test on Caché: `/verbose` does not exist (错误 #5001 kills the
+//!   run), and a bare class name in testspec names a *directory* under
+//!   `^UnitTestRoot`, not a class. The fix — colon-syntax testspec, one
+//!   `RunTest` per class, `/displaylog` — lives in
+//!   [`build_cache_test_run_code`]; `iris_test` calls it after resolving the
+//!   pattern through the SQL dictionary.
 //!
 //! v1 also uses different routine categories: RTN covers .mac/.int/.inc, and
 //! MAC/INT/INC are not v1 categories at all. Worse, both `/docnames/RTN` and
@@ -88,6 +96,57 @@ pub fn glob_to_sql_like(glob: &str) -> String {
         }
     }
     out
+}
+
+/// Upper bound on classes one `iris_test` call chains on a Caché-family server.
+///
+/// Caché needs one `RunTest` per class (see [`build_cache_test_run_code`]), all
+/// inside a single executor snippet — a glob matching half the namespace would
+/// turn one tool call into a very long-running one. A pattern that broad is
+/// almost certainly a mistake, so it is an error rather than a truncation.
+pub const CACHE_TEST_CLASS_CAP: usize = 50;
+
+/// Build the `%UnitTest.Manager` invocation for a Caché-family server: one
+/// `RunTest` per class, chained in a single snippet.
+///
+/// Caché's Manager differs from IRIS's in three ways that each break the
+/// IRIS-shaped bare-name call (all verified against a live Caché 2016.2.3):
+///
+/// • `/verbose` does not exist — `RunTest("X","/verbose=1/…")` dies with
+///   `错误 #5001: qualifier '/verbose' does not exist` before any test runs,
+///   leaving no stdout to parse. `/displaylog` is the Caché switch that gates
+///   every `PrintLine` (the IRIS `/verbose` equivalent).
+/// • A bare class name in testspec names a DIRECTORY under `^UnitTestRoot`
+///   (`$tr(testsuite,"/.","\")` then `AddSubDirectoryNames`). No XML there →
+///   zero classes run → the run still ends "All PASSED". The colon form
+///   `":Package.Class"` puts the class straight into `classLoaded`, no
+///   filesystem involved.
+/// • Each colon entry resolves to the `^UnitTestRoot` directory itself, and
+///   `RunTestSuites` dedupes on that directory (`haverun(dir)`), so a second
+///   colon entry inside one call is silently skipped. Hence one call per class.
+///
+/// The flags are the caller's business, but they must include `/norecursive`:
+/// with recursion on, `GetSubDirectories` only registers a directory that holds
+/// XML files directly, and `^UnitTestRoot` holds none — so even a colon entry
+/// never reaches `RunOneTestSuite`. `/norecursive` registers `^UnitTestRoot`
+/// unconditionally, which is where the injected class then runs. This is the
+/// fourth way the IRIS-shaped flags (`/verbose=1/nodelete/noload`) fail:
+/// `/verbose` errors out, and the `/noload` without `/norecursive` runs nothing.
+///
+/// `classes` comes from the SQL dictionary ([`class_names_like`]); the Manager
+/// itself skips anything that does not extend `%UnitTest.TestCase`, so a glob
+/// matching non-test classes costs time but never correctness.
+pub fn build_cache_test_run_code(classes: &[String], flags: &str, token: &str) -> String {
+    classes
+        .iter()
+        .map(|c| {
+            format!(
+                r#"do ##class(%UnitTest.Manager).RunTest(":{c}","{flags}","{token}")"#,
+                c = c.replace('"', "\\\""),
+            )
+        })
+        .collect::<Vec<_>>()
+        .join(" ")
 }
 
 /// A class-scope glob (`MyPkg.*.cls`, `DHC.LIS*`) to a LIKE over
@@ -438,6 +497,52 @@ mod tests {
         assert_eq!(strip_suffix_ci("M.Test", ".mac"), "M.Test");
         // The suffix alone must not panic — len check holds, result is empty.
         assert_eq!(strip_suffix_ci(".mac", ".mac"), "");
+    }
+
+    // ── build_cache_test_run_code ───────────────────────────────────────────────
+    #[test]
+    fn cache_run_code_single_class_uses_colon_syntax() {
+        // The colon form is the whole point: ":Package.Class" injects the class
+        // straight into classLoaded instead of naming a ^UnitTestRoot directory.
+        let code = build_cache_test_run_code(
+            &["Test.McpDemoTest".to_string()],
+            "/noload/nodelete/norecursive/displaylog",
+            "tok1",
+        );
+        assert_eq!(
+            code,
+            r#"do ##class(%UnitTest.Manager).RunTest(":Test.McpDemoTest","/noload/nodelete/norecursive/displaylog","tok1")"#
+        );
+    }
+
+    #[test]
+    fn cache_run_code_chains_one_call_per_class() {
+        // haverun(dir) dedupes colon entries to the same ^UnitTestRoot directory,
+        // so two classes in one RunTest would silently skip the second.
+        let code = build_cache_test_run_code(
+            &["A.One".to_string(), "A.Two".to_string()],
+            "/noload/nodelete/norecursive/displaylog",
+            "tok2",
+        );
+        assert_eq!(code.matches("RunTest").count(), 2, "code: {code}");
+        assert!(code.contains(r#"RunTest(":A.One""#), "code: {code}");
+        assert!(code.contains(r#"RunTest(":A.Two""#), "code: {code}");
+    }
+
+    #[test]
+    fn cache_run_code_empty_class_list_is_empty_snippet() {
+        // The caller checks for empty before invoking; an empty slice here must
+        // not produce a dangling RunTest with an empty testspec.
+        assert_eq!(build_cache_test_run_code(&[], "/noload", "t"), "");
+    }
+
+    #[test]
+    fn cache_run_code_escapes_embedded_quotes() {
+        let code = build_cache_test_run_code(&[r#"We"ird"#.to_string()], "/noload", "t");
+        assert!(
+            code.contains(r#"RunTest(":We\"ird""#),
+            "quote must be escaped: {code}"
+        );
     }
 
     // ── sql_quote ──────────────────────────────────────────────────────────────

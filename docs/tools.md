@@ -566,6 +566,16 @@ iris_test(pattern="MyApp.Tests")
 iris_test(pattern="MyApp.Tests", coverage=true, coverage_target_pct=80)
 ```
 
+**Caché-family servers** (Caché / Ensemble / HealthShare, Atelier v1): `pattern` must be a
+compiled class name (`"MyPkg.MyTest"`) or a class glob (`"MyPkg.*"`). Caché's
+`%UnitTest.Manager` has no `/verbose` qualifier and treats a bare name in testspec as a
+directory under `^UnitTestRoot`, so the call resolves the pattern to concrete classes via
+the SQL dictionary and issues one colon-syntax `RunTest` per class with `/displaylog` for
+the per-method output. Directory-path patterns and `test_type="testproduction"` return
+`UNSUPPORTED_ON_CACHE`; a glob matching more than 50 classes returns
+`TOO_MANY_TEST_CLASSES` (each class is a separate `RunTest` inside one call — narrow the
+pattern).
+
 ---
 
 ### `iris_coverage`

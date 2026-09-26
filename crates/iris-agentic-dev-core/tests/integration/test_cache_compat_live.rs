@@ -23,6 +23,7 @@ use iris_agentic_dev_core::iris::connection::{DiscoverySource, IrisConnection};
 use iris_agentic_dev_core::tools::cache_compat;
 use iris_agentic_dev_core::tools::log_store::LogStore;
 use iris_agentic_dev_core::tools::search::{handle_iris_search, SearchParams};
+use iris_agentic_dev_core::tools::IrisTools;
 use std::sync::{Arc, Mutex};
 
 fn make_cache_conn() -> Option<IrisConnection> {
@@ -296,3 +297,250 @@ async fn iris_search_routine_category_says_what_it_cannot_do() {
     let note = v["note"].as_str().unwrap_or_default();
     assert!(note.contains("MAC"), "note: {note}");
 }
+
+// ── iris_test on Caché: colon-syntax RunTest, end to end ─────────────────────
+//
+// The IRIS-shaped `RunTest("Pkg","/verbose=1/nodelete/noload")` call never runs a
+// single test on Caché (no /verbose qualifier; a bare name in testspec names a
+// ^UnitTestRoot directory). These tests hold the Caché branch to its contract:
+// fixture classes are PUT + compiled through Atelier directly, then `iris_test`
+// runs them through the full handler — dictionary resolution, colon-syntax
+// RunTest, /displaylog stdout, and the parser.
+
+const FIXTURE_CLASS: &str = "IadCacheTest.FixtureTest";
+
+/// IrisTools around a probed Caché connection — `product` is only resolved
+/// after `probe()`, and the iris_test Caché branch gates on it.
+async fn cache_tools() -> Option<IrisTools> {
+    let iris = probed_conn().await?;
+    Some(IrisTools::new(Some(iris)).expect("IrisTools::new"))
+}
+
+/// The connection the tools instance holds, cloned out of its Arc — fixture
+/// setup/deardown talks Atelier directly rather than through the handler.
+fn tools_test_connection(tools: &IrisTools) -> IrisConnection {
+    let state = tools.connection.lock().unwrap();
+    state
+        .iris
+        .as_ref()
+        .expect("cache_tools always sets a connection")
+        .as_ref()
+        .clone()
+}
+
+/// PUT an arbitrary class document through Atelier and compile it. Returns false on any
+/// failure so callers can skip (and report) rather than panic on a connection problem.
+async fn put_class(
+    iris: &IrisConnection,
+    client: &reqwest::Client,
+    class_name: &str,
+    content: &[&str],
+) -> bool {
+    let doc_name = format!("{class_name}.cls");
+    let lines: Vec<String> = content.iter().map(|s| s.to_string()).collect();
+    let url = iris.versioned_ns_url(NS, &format!("/doc/{doc_name}"));
+    let Ok(resp) = client
+        .put(&url)
+        .basic_auth(&iris.username, Some(&iris.password))
+        .json(&serde_json::json!({ "enc": false, "content": lines }))
+        .send()
+        .await
+    else {
+        return false;
+    };
+    if !resp.status().is_success() {
+        return false;
+    }
+    matches!(
+        iris.compile_document(&doc_name, NS, "cuk", client).await,
+        Ok(r) if r.success()
+    )
+}
+
+/// PUT a class document through Atelier and compile it. Returns false on any
+/// failure so callers can skip (and report) rather than panic on a connection
+/// problem.
+async fn compile_fixture(
+    iris: &IrisConnection,
+    client: &reqwest::Client,
+    class_name: &str,
+) -> bool {
+    put_class(
+        iris,
+        client,
+        class_name,
+        &[
+            &format!("Class {class_name} Extends %UnitTest.TestCase"),
+            "{",
+            "",
+            "Method TestOne()",
+            "{",
+            r#"    do $$$AssertEquals(1, 1, "one equals one")"#,
+            "}",
+            "",
+            "Method TestTwo()",
+            "{",
+            r#"    do $$$AssertEquals(2, 2, "two equals two")"#,
+            "}",
+            "}",
+        ],
+    )
+    .await
+}
+
+async fn delete_fixture(iris: &IrisConnection, client: &reqwest::Client, class_name: &str) {
+    // delete_doc is private, and the cleanup is best-effort anyway — a plain
+    // DELETE against the doc URL is exactly what it does.
+    let url = iris.versioned_ns_url(NS, &format!("/doc/{class_name}.cls"));
+    let _ = client
+        .delete(&url)
+        .basic_auth(&iris.username, Some(&iris.password))
+        .send()
+        .await;
+}
+
+/// Call a tool through the real handler dispatch and parse the JSON body.
+async fn call_tool(tools: &IrisTools, tool: &str, params: serde_json::Value) -> serde_json::Value {
+    let r = tools.call_for_test(tool, params).await.expect("dispatch");
+    let text = r.content[0].as_text().expect("text content").text.clone();
+    serde_json::from_str(&text).unwrap_or_else(|_| serde_json::json!({ "raw": text }))
+}
+
+/// Call iris_test through the real handler dispatch and parse the JSON body.
+async fn call_test(tools: &IrisTools, params: serde_json::Value) -> serde_json::Value {
+    call_tool(tools, "iris_test", params).await
+}
+
+#[tokio::test]
+#[ignore]
+async fn iris_test_runs_single_compiled_class_on_cache() {
+    let Some(tools) = cache_tools().await else {
+        return;
+    };
+    let iris = tools_test_connection(&tools);
+    let client = reqwest::Client::new();
+    assert!(
+        compile_fixture(&iris, &client, FIXTURE_CLASS).await,
+        "fixture must compile"
+    );
+    let v = call_test(&tools, serde_json::json!({ "pattern": FIXTURE_CLASS })).await;
+    delete_fixture(&iris, &client, FIXTURE_CLASS).await;
+    assert_eq!(v["success"].as_bool(), Some(true), "body: {v}");
+    assert_eq!(v["total"].as_u64(), Some(2), "both fixture methods: {v}");
+    assert_eq!(v["passed"].as_u64(), Some(2), "body: {v}");
+    assert_eq!(v["failed"].as_u64(), Some(0), "body: {v}");
+    let suites = v["test_suites"].as_array().expect("test_suites");
+    assert_eq!(suites.len(), 1, "one class ran: {v}");
+    assert_eq!(
+        suites[0]["name"].as_str(),
+        Some(FIXTURE_CLASS),
+        "suite is the class: {v}"
+    );
+}
+
+#[tokio::test]
+#[ignore]
+async fn iris_test_glob_expands_through_the_dictionary_on_cache() {
+    let Some(tools) = cache_tools().await else {
+        return;
+    };
+    let iris = tools_test_connection(&tools);
+    let client = reqwest::Client::new();
+    assert!(
+        compile_fixture(&iris, &client, FIXTURE_CLASS).await,
+        "fixture must compile"
+    );
+    let v = call_test(&tools, serde_json::json!({ "pattern": "IadCacheTest.*" })).await;
+    delete_fixture(&iris, &client, FIXTURE_CLASS).await;
+    assert_eq!(v["success"].as_bool(), Some(true), "body: {v}");
+    assert_eq!(
+        v["passed"].as_u64(),
+        Some(2),
+        "glob matched the fixture: {v}"
+    );
+    let suites = v["test_suites"].as_array().expect("test_suites");
+    assert!(
+        suites
+            .iter()
+            .any(|s| s["name"].as_str() == Some(FIXTURE_CLASS)),
+        "suite names: {v}"
+    );
+}
+
+#[tokio::test]
+#[ignore]
+async fn iris_test_directory_pattern_is_rejected_on_cache() {
+    let Some(tools) = cache_tools().await else {
+        return;
+    };
+    // The IRIS directory path assumes a Unix /tmp scaffold this Windows Caché
+    // server does not have — refusing beats silently running nothing.
+    let v = call_test(&tools, serde_json::json!({ "pattern": "MyApp/Tests" })).await;
+    assert_eq!(v["success"].as_bool(), Some(false), "body: {v}");
+    assert_eq!(
+        v["error_code"].as_str(),
+        Some("UNSUPPORTED_ON_CACHE"),
+        "body: {v}"
+    );
+}
+
+#[tokio::test]
+#[ignore]
+async fn iris_test_testproduction_type_is_rejected_on_cache() {
+    let Some(tools) = cache_tools().await else {
+        return;
+    };
+    let v = call_test(
+        &tools,
+        serde_json::json!({ "pattern": FIXTURE_CLASS, "test_type": "testproduction" }),
+    )
+    .await;
+    assert_eq!(v["success"].as_bool(), Some(false), "body: {v}");
+    assert_eq!(
+        v["error_code"].as_str(),
+        Some("UNSUPPORTED_ON_CACHE"),
+        "body: {v}"
+    );
+}
+
+#[tokio::test]
+#[ignore]
+async fn iris_test_missing_class_reports_no_tests_on_cache() {
+    let Some(tools) = cache_tools().await else {
+        return;
+    };
+    let v = call_test(
+        &tools,
+        serde_json::json!({ "pattern": "IadCacheTest.DoesNotExist" }),
+    )
+    .await;
+    assert_eq!(v["success"].as_bool(), Some(false), "body: {v}");
+    assert_eq!(
+        v["error_code"].as_str(),
+        Some("NO_TESTS_FOUND"),
+        "body: {v}"
+    );
+    // A single class goes straight to RunTest (the Manager itself reports the
+    // missing testcase), so the empty result surfaces through the stdout-parse
+    // branch — only the glob branch answers from the dictionary.
+    assert_eq!(v["source"].as_str(), Some("stdout_parse"), "body: {v}");
+}
+
+#[tokio::test]
+#[ignore]
+async fn iris_test_overbroad_glob_is_capped_on_cache() {
+    let Some(tools) = cache_tools().await else {
+        return;
+    };
+    // DHC-APP carries ~4.8k User.* classes — far past the 50-class cap. Each
+    // class would be a separate RunTest inside one snippet, so this must be an
+    // error, never a truncated or runaway run.
+    let v = call_test(&tools, serde_json::json!({ "pattern": "User.*" })).await;
+    assert_eq!(v["success"].as_bool(), Some(false), "body: {v}");
+    assert_eq!(
+        v["error_code"].as_str(),
+        Some("TOO_MANY_TEST_CLASSES"),
+        "body: {v}"
+    );
+}
+

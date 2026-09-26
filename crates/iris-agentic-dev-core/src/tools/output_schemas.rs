@@ -1954,12 +1954,42 @@ pub struct IrisTestNoTestsFoundError {
     pub source: String,
 }
 
+/// Caché-family guard for pattern shapes whose IRIS implementations cannot work there:
+/// directory paths (the /tmp/httest scaffold assumes a Unix filesystem the Windows Caché
+/// server does not have) and `test_type="testproduction"` (the `.Run()` auto-detect path).
+/// `ToolError`'s three fields plus a `hint`, echoed `pattern`/`namespace`, and `path`.
+#[derive(Debug, Serialize, JsonSchema)]
+pub struct IrisTestUnsupportedOnCacheError {
+    pub success: bool,
+    pub error_code: String,
+    pub error: String,
+    pub hint: String,
+    pub pattern: String,
+    pub namespace: String,
+    pub path: String,
+}
+
+/// Caché-family guard for an over-broad glob: each class is a separate `RunTest` inside
+/// one snippet, so a pattern matching more than `CACHE_TEST_CLASS_CAP` classes would be a
+/// runaway call. `ToolError`'s three fields plus a `hint` and echoed `pattern`/`namespace`.
+#[derive(Debug, Serialize, JsonSchema)]
+pub struct IrisTestTooManyClassesError {
+    pub success: bool,
+    pub error_code: String,
+    pub error: String,
+    pub hint: String,
+    pub pattern: String,
+    pub namespace: String,
+}
+
 #[derive(Debug, Serialize, JsonSchema)]
 #[serde(untagged)]
 pub enum IrisTestResponse {
     Ok(IrisTestOk),
     NamespaceNotFound(IrisTestNamespaceNotFoundError),
     NoTestsFound(IrisTestNoTestsFoundError),
+    UnsupportedOnCache(IrisTestUnsupportedOnCacheError),
+    TooManyClasses(IrisTestTooManyClassesError),
     Err(ToolError),
 }
 

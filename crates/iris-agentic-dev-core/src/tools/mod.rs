@@ -241,6 +241,7 @@ fn sentence_end(line: &str) -> Option<usize> {
 }
 
 pub const ERR_NO_TESTS_FOUND: &str = "NO_TESTS_FOUND";
+pub const ERR_TOO_MANY_TEST_CLASSES: &str = "TOO_MANY_TEST_CLASSES";
 pub const ERR_NAMESPACE_NOT_FOUND: &str = "NAMESPACE_NOT_FOUND";
 pub const ERR_TEST_EXECUTION_ERROR: &str = "TEST_EXECUTION_ERROR";
 pub const ERR_SERVER_MANAGER_CREDENTIAL: &str = "SERVER_MANAGER_CREDENTIAL_ERROR";
@@ -4082,11 +4083,113 @@ impl IrisTools {
             }
         };
 
+        // Caché-family (Caché / Ensemble / HealthShare): the IRIS-shaped call breaks
+        // three ways — no /verbose qualifier (错误 #5001 kills the run before any test
+        // executes), a bare class name in testspec names a directory under
+        // ^UnitTestRoot (zero classes run, and the run still ends "All PASSED"), and
+        // colon entries inside one RunTest dedupe to the same directory. So: resolve
+        // the pattern to concrete classes from the SQL dictionary, then one
+        // colon-syntax RunTest per class, /displaylog for the per-method stdout the
+        // parser needs. Verified against a live Caché 2016.2.3 — see
+        // cache_compat::build_cache_test_run_code.
+        //
+        // Two pattern shapes stay IRIS-only and are rejected up front rather than
+        // silently running nothing: directory paths (the /tmp/httest scaffold assumes
+        // a Unix filesystem that a Windows Caché server does not have) and
+        // %UnitTest.TestProduction (the .Run() auto-detect path).
+        if iris.product.is_cache_family() && (!is_class_pattern || is_test_production) {
+            self.record_call("iris_test", false);
+            let what = if is_test_production {
+                "test_type=\"testproduction\""
+            } else {
+                "directory-path patterns"
+            };
+            return err_result(serde_json::json!({
+                "success": false,
+                "error_code": "UNSUPPORTED_ON_CACHE",
+                "error": format!("{what} are not supported on Caché-family servers"),
+                "hint": "On Caché, iris_test runs already-compiled classes: pass a class \
+                         name (\"MyPkg.MyTest\") or a class glob (\"MyPkg.*\") instead.",
+                "pattern": p.pattern,
+                "namespace": namespace,
+                "path": path_label,
+            }));
+        }
+        let cache_classes: Option<Vec<String>> =
+            if iris.product.is_cache_family() && is_class_pattern && !is_test_production {
+                if is_single_class {
+                    // A single class goes straight in — the Manager itself checks
+                    // it extends %UnitTest.TestCase. Strip a .cls suffix; callers
+                    // habitually paste the document name, not the class name.
+                    Some(vec![p.pattern.trim_end_matches(".cls").to_string()])
+                } else {
+                    let like = cache_compat::class_glob_to_like(&p.pattern);
+                    match cache_compat::class_names_like(iris.as_ref(), client, &namespace, &like)
+                        .await
+                    {
+                        Ok(names) => Some(names),
+                        Err(e) => {
+                            self.record_call("iris_test", false);
+                            return err_result(serde_json::json!({
+                                "success": false,
+                                "error_code": ERR_TEST_EXECUTION_ERROR,
+                                "error": format!("Caché class enumeration failed: {e}"),
+                            }));
+                        }
+                    }
+                }
+            } else {
+                None
+            };
+        if let Some(classes) = &cache_classes {
+            if classes.is_empty() {
+                self.record_call("iris_test", false);
+                return err_result(serde_json::json!({
+                    "success": false,
+                    "error_code": ERR_NO_TESTS_FOUND,
+                    "error": "Pattern matched no classes in the SQL dictionary",
+                    "hint": "Caché resolves the pattern against %Dictionary.ClassDefinition \
+                             before running. Verify the package name; only classes extending \
+                             %UnitTest.TestCase produce results.",
+                    "pattern": p.pattern,
+                    "namespace": namespace,
+                    "total": 0,
+                    "passed": 0,
+                    "failed": 0,
+                    "path": path_label,
+                    "source": "cache_dictionary",
+                }));
+            }
+            if classes.len() > cache_compat::CACHE_TEST_CLASS_CAP {
+                self.record_call("iris_test", false);
+                return err_result(serde_json::json!({
+                    "success": false,
+                    "error_code": ERR_TOO_MANY_TEST_CLASSES,
+                    "error": format!(
+                        "Pattern matched {} classes, more than the Caché cap of {}",
+                        classes.len(),
+                        cache_compat::CACHE_TEST_CLASS_CAP
+                    ),
+                    "hint": "Narrow the pattern — on Caché each class is a separate RunTest \
+                             call inside one snippet.",
+                    "pattern": p.pattern,
+                    "namespace": namespace,
+                }));
+            }
+        }
+
         // Run tests via execute_via_generator (HTTP path).
         // After RunTest completes, ^UnitTest.Result global IS persisted (globals bypass
         // the objectgenerator transaction boundary; SQL %Save() does not).
-        let run_code =
-            build_test_run_code(&safe_pattern, flags, &correlation_token, is_test_production);
+        let run_code = if let Some(classes) = &cache_classes {
+            cache_compat::build_cache_test_run_code(
+                classes,
+                "/noload/nodelete/norecursive/displaylog",
+                &correlation_token,
+            )
+        } else {
+            build_test_run_code(&safe_pattern, flags, &correlation_token, is_test_production)
+        };
 
         // coverage=true: start the monitor before the test run so it instruments execution.
         // We start here (before run_output), then report+stop after parsing test results.
