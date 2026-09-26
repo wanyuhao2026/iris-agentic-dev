@@ -3321,6 +3321,11 @@ pub struct CheckConfigOk {
     /// ISO 8601, e.g. `"2026-08-17T12:00:00Z"`.
     pub config_loaded_at: Option<String>,
     pub iris_version: Option<String>,
+    /// Product family of the connected instance — "iris", "cache", "ensemble",
+    /// "healthshare", or "unknown". Caché-family instances gate IRIS-only tools
+    /// (mirroring) with `UNSUPPORTED_ON_CACHE`, so this field is how an operator
+    /// verifies why those tools refuse.
+    pub product: String,
     /// Which build of this server is answering. Written into the response body since v1.0.0 and
     /// advertised first in the tool's own description, but absent from this struct until 085 —
     /// the declared contract omitted the field it told you to read.

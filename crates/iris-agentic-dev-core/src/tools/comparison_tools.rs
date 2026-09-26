@@ -72,11 +72,24 @@ pub async fn fetch_document_source(
 }
 
 /// Fetch the list of class names in a namespace from the Atelier docnames endpoint.
+///
+/// Caché-family (Atelier v1) instances: `/docnames/CLS` times out server-side
+/// on large namespaces (HTTP 504 on a 51k-class namespace), so the list comes
+/// from the SQL dictionary instead — same names, answered in under a second.
+/// Also note this function previously hard-coded `/v1/` while every other
+/// call site used `versioned_ns_url`; on a v2+ IRIS server the hard-coded v1
+/// path still works, but the Caché branch below keeps the two from diverging
+/// further.
 pub async fn fetch_class_list(
     iris: &IrisConnection,
     client: &reqwest::Client,
     namespace: &str,
 ) -> Result<Vec<String>, String> {
+    if iris.product.is_cache_family() {
+        return crate::tools::cache_compat::class_names_like(iris, client, namespace, "%")
+            .await
+            .map(|names| names.into_iter().map(|n| format!("{n}.cls")).collect());
+    }
     let url = format!(
         "{}/api/atelier/v1/{}/docnames/CLS",
         iris.base_url, namespace

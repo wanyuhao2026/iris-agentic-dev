@@ -1,6 +1,7 @@
 //! iris_search — full-text search via Atelier REST v2 with sync→async fallback.
 
 use crate::iris::connection::{iris_http_client, IrisConnection};
+use crate::tools::cache_compat;
 use crate::tools::log_store;
 use schemars::JsonSchema;
 use serde::Deserialize;
@@ -77,6 +78,14 @@ pub async fn handle_iris_search(
             }));
         }
     };
+    // Caché-family gate (Caché / Ensemble / HealthShare, Atelier v1):
+    // `/action/search` there always returns an empty result — the endpoint
+    // exists but never matches (verified on Caché 2016.2.3 against a document
+    // containing the query term). Sending the request anyway would read as
+    // "no hits", so route straight to the SQL data-dictionary fallback.
+    if iris.product.is_cache_family() {
+        return cache_family_search(iris, client, &p, namespace, &log_store).await;
+    }
     // Atelier `/action/search` treats a *missing* `case` param as case-SENSITIVE,
     // so omitting it (the old behaviour when `case_sensitive=false`) silently made
     // every default search exact-case — `hiddenset` or even `HiddenSet` would miss
@@ -166,6 +175,145 @@ pub async fn handle_iris_search(
             }
         }
     }
+}
+
+/// Caché-family search — the SQL data-dictionary fallback.
+///
+/// On Caché-family instances `/action/search` always returns an empty result
+/// (verified on Caché 2016.2.3 against a document containing the query term),
+/// so the search is re-expressed against the SQL data dictionary: class
+/// names, method names, and property names. Class *text* is not searched —
+/// that would mean fetching every document in scope; `iris_doc` mode=get is
+/// the tool for reading one.
+async fn cache_family_search(
+    iris: &IrisConnection,
+    client: &reqwest::Client,
+    p: &SearchParams,
+    namespace: &str,
+    log_store: &Arc<Mutex<log_store::LogStore>>,
+) -> Result<rmcp::model::CallToolResult, rmcp::ErrorData> {
+    let category = p.category.as_deref().unwrap_or("ALL").to_uppercase();
+    // Routine categories: the dictionary describes classes only, and the v1
+    // search endpoint never matches anything, so say what is happening rather
+    // than return an empty result that reads as "no hits".
+    if matches!(category.as_str(), "MAC" | "INT" | "INC") {
+        return ok_json(serde_json::json!({
+            "success": true,
+            "query": p.query,
+            "results": [],
+            "total_found": 0,
+            "note": format!(
+                "Caché-family fallback searches the SQL data dictionary (class, method, \
+                 and property names) and cannot search {category} routine contents. Use \
+                 iris_doc mode=get to read a specific routine."
+            ),
+        }));
+    }
+
+    // Class-scope globs only: a routine glob (M.*.mac) contributes nothing to
+    // a dictionary search. If every scope names routines, there is nothing to
+    // search here either.
+    let scopes: Vec<&str> = p
+        .documents
+        .iter()
+        .map(|s| s.as_str())
+        .filter(|d| {
+            let l = d.to_ascii_lowercase();
+            !(l.ends_with(".mac")
+                || l.ends_with(".int")
+                || l.ends_with(".inc")
+                || l.ends_with(".bas"))
+        })
+        .collect();
+    if scopes.is_empty() {
+        return ok_json(serde_json::json!({
+            "success": true,
+            "query": p.query,
+            "results": [],
+            "total_found": 0,
+            "note": "Caché-family fallback searches class dictionary entries; the given \
+                     documents scope names no class documents.",
+        }));
+    }
+
+    // One dictionary query per scope, merged and de-duplicated. Overlapping
+    // scopes (M.*, M.**.*) legitimately produce the same hit twice.
+    let limit = 200usize;
+    let mut matches: Vec<cache_compat::DictMatch> = Vec::new();
+    let mut seen = std::collections::HashSet::new();
+    for scope in &scopes {
+        let like = cache_compat::class_glob_to_like(scope);
+        match cache_compat::dictionary_search(
+            iris,
+            client,
+            namespace,
+            &p.query,
+            &like,
+            p.case_sensitive,
+            limit,
+        )
+        .await
+        {
+            Ok(mut m) => {
+                matches.append(&mut m);
+                matches.retain(|m| seen.insert((m.document.clone(), m.member.clone(), m.kind)));
+                if matches.len() >= limit {
+                    break;
+                }
+            }
+            Err(e) => {
+                return crate::tools::err_result(serde_json::json!({
+                    "success": false,
+                    "error_code": "DICTIONARY_SEARCH_FAILED",
+                    "error": e,
+                    "query": p.query,
+                }));
+            }
+        }
+    }
+    matches.truncate(limit);
+
+    let results: Vec<serde_json::Value> = matches
+        .into_iter()
+        .map(|m| {
+            serde_json::json!({
+                "document": m.document,
+                // The dictionary carries no line numbers; null keeps the
+                // field's shape so consumers can treat it uniformly.
+                "line": serde_json::Value::Null,
+                "member": m.member,
+                "content": match m.kind {
+                    "class" => format!("class {}", m.document),
+                    _ => format!("{} {} of {}", m.kind, m.member, m.document),
+                },
+            })
+        })
+        .collect();
+    let total = results.len();
+
+    let mut resp = serde_json::json!({
+        "success": true,
+        "query": p.query,
+        "results": results,
+        "total_found": total,
+    });
+    if p.regex {
+        resp["note"] = serde_json::json!(
+            "Caché-family fallback treats the query as a plain substring; regex is not applied."
+        );
+    }
+
+    // Same progressive-disclosure rules as the Atelier path.
+    let threshold = log_store::read_inline_threshold("IRIS_INLINE_SEARCH", 30);
+    log_store::apply_truncation(
+        &mut resp,
+        "results",
+        threshold,
+        p.inline,
+        log_store,
+        "iris_search",
+    );
+    ok_json(resp)
 }
 
 async fn poll_async_search(

@@ -60,6 +60,54 @@ pub async fn handle_iris_info(
     log_store: Arc<Mutex<log_store::LogStore>>,
 ) -> Result<rmcp::model::CallToolResult, rmcp::ErrorData> {
     let ns = crate::tools::resolve_namespace(p.namespace.as_deref(), &iris.namespace);
+    // Caché-family (Atelier v1) replacement for the docnames-backed `what`s:
+    // `/docnames/CLS` times out server-side on large namespaces (HTTP 504 on a
+    // 51k-class namespace), and MAC/INT/INC are not v1 categories — RTN covers
+    // all three. `info` has no pattern to pre-filter with, so CLS asks for the
+    // whole namespace via the SQL dictionary (`*`), which answers in <1s even
+    // at 51k classes.
+    if iris.product.is_cache_family() {
+        match p.what.as_str() {
+            "documents" => {
+                let cat = match p.doc_type.as_deref().unwrap_or("ALL") {
+                    "ALL" => "CLS",
+                    t => t,
+                }
+                .to_uppercase();
+                let docs = crate::tools::cache_compat::docnames_entries(
+                    iris, client, ns, &cat, "*",
+                )
+                .await
+                .map_err(|e| rmcp::ErrorData::internal_error(e, None))?;
+                let mut result_json = serde_json::json!({
+                    "success": true,
+                    "what": p.what,
+                    "namespace": ns,
+                    "result": { "content": docs },
+                });
+                if let Some(content) = result_json["result"]["content"].as_array().cloned() {
+                    result_json["documents"] = serde_json::Value::Array(content);
+                    let threshold = log_store::read_inline_threshold("IRIS_INLINE_INFO", 30);
+                    log_store::apply_truncation(
+                        &mut result_json,
+                        "documents",
+                        threshold,
+                        p.inline,
+                        &log_store,
+                        "iris_info",
+                    );
+                }
+                return ok_json(result_json);
+            }
+            "modified" | "namespace" | "metadata" | "jobs" | "csp_apps" | "csp_debug"
+            | "sa_schema" => {
+                // Not docnames-backed — fall through to the generic GET below.
+            }
+            other => {
+                return err_json("INVALID_PARAM", &format!("Unknown what='{other}'. Use: documents, modified, namespace, metadata, jobs, csp_apps, csp_debug, sa_schema"))
+            }
+        }
+    }
     let url = match p.what.as_str() {
         "documents" => {
             // Bug 14: use versioned_ns_url so future API versions are used automatically.
@@ -147,6 +195,23 @@ pub async fn handle_iris_macro(
     match p.action.as_str() {
         "list" => {
             // Bug 14: use versioned_ns_url instead of hardcoded /v1/.
+            // Caché-family (Atelier v1): INC is not a v1 category — RTN covers
+            // .inc files. The fallback fetches RTN and filters by extension.
+            if iris.product.is_cache_family() {
+                let docs =
+                    crate::tools::cache_compat::docnames_entries(iris, client, ns, "INC", "*")
+                        .await
+                        .map_err(|e| rmcp::ErrorData::internal_error(e, None))?;
+                let inc_files: Vec<String> = docs
+                    .iter()
+                    .filter_map(|d| d["name"].as_str().map(|s| s.to_string()))
+                    .collect();
+                return ok_json(serde_json::json!({
+                    "success": true,
+                    "macros": inc_files,
+                    "note": "Lists .inc include files — macro definitions are found within these files"
+                }));
+            }
             let url = iris.versioned_ns_url(ns, "/docnames/INC");
             let resp = client
                 .get(&url)

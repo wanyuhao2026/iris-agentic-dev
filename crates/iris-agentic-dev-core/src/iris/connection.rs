@@ -214,6 +214,68 @@ pub enum SystemMode {
     Unknown, // null/empty — apply namespace heuristic
 }
 
+/// Which InterSystems product the connected instance is, parsed from the
+/// `$ZVersion`-style string the Atelier root endpoint reports (`result.content.version`).
+///
+/// The version string is the only signal that distinguishes them: Caché 2016.2
+/// reports `Cache for Windows (x86-64) 2016.2.3 (Build …)`, IRIS reports
+/// `IRIS for Windows …`. Older Caché/Ensemble builds follow the same
+/// `<Product> for <Platform>` shape.
+///
+/// Used to gate IRIS-only surfaces (mirroring, `%SYSTEM.Mirror`-based tools) so a
+/// Caché caller gets `UNSUPPORTED_ON_CACHE` instead of a class-not-found SQL error.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum IrisProduct {
+    Iris,
+    Cache,
+    Ensemble,
+    HealthShare,
+    /// Version string missing or unrecognised — do not gate on it.
+    #[default]
+    Unknown,
+}
+
+impl IrisProduct {
+    /// Lowercase slug for JSON output (`check_config`'s `product` field).
+    pub fn as_str(&self) -> &'static str {
+        match self {
+            IrisProduct::Iris => "iris",
+            IrisProduct::Cache => "cache",
+            IrisProduct::Ensemble => "ensemble",
+            IrisProduct::HealthShare => "healthshare",
+            IrisProduct::Unknown => "unknown",
+        }
+    }
+
+    /// Parse a `$ZVersion`-style string, e.g. from Atelier `result.content.version`
+    /// or `Write $ZVersion` output.
+    pub fn from_version_string(s: &str) -> Self {
+        let lower = s.to_ascii_lowercase();
+        if lower.starts_with("cache for") || lower.starts_with("cache ") {
+            return IrisProduct::Cache;
+        }
+        if lower.starts_with("ensemble for") {
+            return IrisProduct::Ensemble;
+        }
+        if lower.starts_with("healthshare for") {
+            return IrisProduct::HealthShare;
+        }
+        if lower.starts_with("iris for") || lower.starts_with("iris ") {
+            return IrisProduct::Iris;
+        }
+        IrisProduct::Unknown
+    }
+
+    /// True for Caché-family products (Caché, Ensemble, HealthShare-on-Caché).
+    /// These predate IRIS; IRIS-only APIs (`%SYSTEM.Mirror`, Atelier v2+ …) may be absent.
+    pub fn is_cache_family(&self) -> bool {
+        matches!(
+            self,
+            IrisProduct::Cache | IrisProduct::Ensemble | IrisProduct::HealthShare
+        )
+    }
+}
+
 /// Which version of the Atelier REST API to use.
 #[derive(Debug, Clone, PartialEq)]
 pub enum AtelierVersion {
@@ -250,6 +312,9 @@ pub struct IrisConnection {
     pub password: String,
     pub version: Option<String>,
     pub atelier_version: AtelierVersion,
+    /// Product family (IRIS / Caché / Ensemble / HealthShare), parsed from `version`
+    /// at probe time. Gates IRIS-only surfaces — see [`IrisProduct`].
+    pub product: IrisProduct,
     pub source: DiscoverySource,
     pub port_superserver: Option<u16>,
     /// Detected at probe time — controls write-tool availability (issue #26).
@@ -270,6 +335,7 @@ impl fmt::Debug for IrisConnection {
             .field("password", &"[redacted]")
             .field("version", &self.version)
             .field("atelier_version", &self.atelier_version)
+            .field("product", &self.product)
             .field("source", &self.source)
             .field("port_superserver", &self.port_superserver)
             .field("system_mode", &self.system_mode)
@@ -368,6 +434,7 @@ impl IrisConnection {
             password: password.into(),
             version: None,
             atelier_version: AtelierVersion::V1,
+            product: IrisProduct::Unknown,
             source,
             port_superserver: None,
             system_mode: SystemMode::Unknown,
@@ -464,6 +531,14 @@ impl IrisConnection {
                         Some(v) if v >= 2 => AtelierVersion::V2,
                         _ => AtelierVersion::V1,
                     };
+                    // Product family from the same response (`Cache for Windows …`
+                    // vs `IRIS for …`). `version` is already Option-mapped above;
+                    // `product` is derived so it can never disagree with it.
+                    self.product = self
+                        .version
+                        .as_deref()
+                        .map(IrisProduct::from_version_string)
+                        .unwrap_or(IrisProduct::Unknown);
                 }
             } else {
                 tracing::debug!("Atelier root probe got HTTP {}", status);
@@ -1493,6 +1568,81 @@ mod pure_fn_tests {
             "SYS",
             DiscoverySource::EnvVar,
         )
+    }
+
+    // ── IrisProduct ────────────────────────────────────────────────────────────
+    // Every string below is a real $ZVersion shape; the verbatim Caché one is
+    // from the live 2016.2.3 instance this compatibility layer was built against.
+    #[test]
+    fn product_parses_verbatim_cache_version_string() {
+        assert_eq!(
+            IrisProduct::from_version_string(
+                "Cache for Windows (x86-64) 2016.2.3 (Build 907_11_20753U) Mon Apr 5 2021 19:51:59 EDT"
+            ),
+            IrisProduct::Cache
+        );
+    }
+
+    #[test]
+    fn product_parses_iris_version_string() {
+        assert_eq!(
+            IrisProduct::from_version_string("IRIS for Windows (x86-64) 2026.2 (Build 7U)"),
+            IrisProduct::Iris
+        );
+    }
+
+    #[test]
+    fn product_parses_ensemble_and_healthshare() {
+        assert_eq!(
+            IrisProduct::from_version_string("Ensemble for Windows (x86-64) 2017.2"),
+            IrisProduct::Ensemble
+        );
+        assert_eq!(
+            IrisProduct::from_version_string("HealthShare for Windows (x86-64) 2018.1"),
+            IrisProduct::HealthShare
+        );
+    }
+
+    #[test]
+    fn product_unknown_on_unrecognised_string() {
+        assert_eq!(IrisProduct::from_version_string(""), IrisProduct::Unknown);
+        assert_eq!(
+            IrisProduct::from_version_string("Something Else 1.0"),
+            IrisProduct::Unknown
+        );
+    }
+
+    #[test]
+    fn product_is_case_insensitive() {
+        // $ZVersion capitalises consistently, but nothing guarantees it.
+        assert_eq!(
+            IrisProduct::from_version_string("cache for windows 2016.2"),
+            IrisProduct::Cache
+        );
+        assert_eq!(
+            IrisProduct::from_version_string("iris for ubuntu 2025.1"),
+            IrisProduct::Iris
+        );
+    }
+
+    #[test]
+    fn product_cache_family_excludes_iris_and_unknown() {
+        // Unknown must NOT gate — fail-open so a mis-parsed version string
+        // cannot disable a tool on a real IRIS instance.
+        assert!(IrisProduct::Cache.is_cache_family());
+        assert!(IrisProduct::Ensemble.is_cache_family());
+        assert!(IrisProduct::HealthShare.is_cache_family());
+        assert!(!IrisProduct::Iris.is_cache_family());
+        assert!(!IrisProduct::Unknown.is_cache_family());
+    }
+
+    #[test]
+    fn product_as_str_matches_json_field_values() {
+        assert_eq!(IrisProduct::Cache.as_str(), "cache");
+        assert_eq!(IrisProduct::Ensemble.as_str(), "ensemble");
+        assert_eq!(IrisProduct::HealthShare.as_str(), "healthshare");
+        assert_eq!(IrisProduct::Iris.as_str(), "iris");
+        assert_eq!(IrisProduct::Unknown.as_str(), "unknown");
     }
 
     // ── versioned_ns_url ──────────────────────────────────────────────────────

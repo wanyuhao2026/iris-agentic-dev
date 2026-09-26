@@ -71,6 +71,7 @@ pub use crate::iris::connection::{mcp_peer, MCP_PEER};
 
 pub mod admin;
 pub mod admin_tools;
+pub mod cache_compat;
 pub mod comparison_tools;
 pub mod coverage;
 pub mod dict;
@@ -1498,6 +1499,33 @@ fn json_result(v: serde_json::Value) -> Result<CallToolResult, McpError> {
 }
 fn err_json(code: &str, msg: &str) -> Result<CallToolResult, McpError> {
     err_result(serde_json::json!({"success": false, "error_code": code, "error": msg}))
+}
+
+/// Product gate for IRIS-only surfaces (mirroring, `%SYSTEM.Mirror`, …).
+///
+/// Caché-family instances (Caché / Ensemble / HealthShare-on-Caché, 2016.x–2018.x)
+/// predate these APIs; without the gate the caller gets a class-not-found SQL error
+/// from deep inside `execute_via_generator`, which reads as a broken tool rather than
+/// an unsupported one. `IrisProduct::Unknown` (probe never ran or version string
+/// unrecognised) does NOT gate — fail-open keeps a mis-parsed version string from
+/// disabling a tool on a real IRIS instance.
+///
+/// Returns `Some(refusal)` when the gate trips; `None` means proceed.
+fn cache_family_gate(
+    iris: &crate::iris::connection::IrisConnection,
+    feature: &str,
+) -> Option<Result<CallToolResult, McpError>> {
+    if !iris.product.is_cache_family() {
+        return None;
+    }
+    Some(err_json(
+        "UNSUPPORTED_ON_CACHE",
+        &format!(
+            "{feature} requires IRIS; the connected instance is Caché-family \
+             (version: {}). Caché 2016.x–2018.x has no {feature} API.",
+            iris.version.as_deref().unwrap_or("unknown version")
+        ),
+    ))
 }
 
 /// Parse `"http://host:port"` into `(host, port)`.
@@ -5320,6 +5348,15 @@ impl IrisTools {
             derive_capabilities(ver_str, docker_only, web_port, web_prefix.as_deref())
         };
 
+        // Product family (iris/cache/ensemble/healthshare/unknown) — parsed at probe
+        // time from the same version string. Mirrors CheckConfigOk::product.
+        let product_str = conn
+            .iris
+            .as_ref()
+            .map(|i| i.product.as_str())
+            .unwrap_or("unknown")
+            .to_string();
+
         let mut response = serde_json::json!({
             "server_version": SERVER_VERSION,
             "connected": conn.iris.is_some(),
@@ -5331,6 +5368,9 @@ impl IrisTools {
             "config_file": config_file,
             "config_loaded_at": config_loaded_at,
             "iris_version": iris_version,
+            // Product family (iris/cache/ensemble/healthshare/unknown) — parsed at probe
+            // time from the same version string. Mirrors CheckConfigOk::product.
+            "product": product_str,
             // All four gate fields come off the one `GateResolution` that `call_tool` enforces, so
             // the report and the enforcement cannot drift apart (085 FR-004). Reporting a gate that
             // enforcement did not read is exactly how `write_tools_enabled: true` survived an
@@ -7867,6 +7907,14 @@ Methods:
                     .await
             }
             "mirror_add_async" => {
+                // Caché-family gate: %SYSTEM.Mirror is IRIS-only.
+                if let Some(iris) = iris_opt {
+                    if let Some(refusal) =
+                        cache_family_gate(iris, "mirror_add_async (%SYSTEM.Mirror)")
+                    {
+                        return refusal;
+                    }
+                }
                 let mirror_name = p.get("mirror_name").and_then(|v| v.as_str()).unwrap_or("");
                 let primary_host = p.get("primary_host").and_then(|v| v.as_str()).unwrap_or("");
                 if mirror_name.is_empty() || primary_host.is_empty() {
@@ -7899,6 +7947,14 @@ Methods:
                 .await
             }
             "mirror_failover" => {
+                // Caché-family gate: %SYSTEM.Mirror is IRIS-only.
+                if let Some(iris) = iris_opt {
+                    if let Some(refusal) =
+                        cache_family_gate(iris, "mirror_failover (%SYSTEM.Mirror)")
+                    {
+                        return refusal;
+                    }
+                }
                 let confirm = p.get("confirm").and_then(|v| v.as_bool()).unwrap_or(false);
                 if !confirm {
                     return err_json(
@@ -9014,6 +9070,9 @@ Methods:
             .and_then(|v| v.as_str())
             .map(|s| s.to_string());
         let iris = self.resolve_server(server.as_deref()).await?;
+        if let Some(refusal) = cache_family_gate(&iris, "iris_mirror_status (%SYSTEM.Mirror)") {
+            return refusal;
+        }
         let result = admin_tools::iris_mirror_status_impl(&iris, &self.client).await;
         self.record_call("iris_mirror_status", result.is_ok());
         result

@@ -1706,7 +1706,20 @@ async fn fetch_docnames_for_cat(
     client: &reqwest::Client,
     namespace: &str,
     cat: &str,
+    glob_hint: &str,
 ) -> Result<Vec<serde_json::Value>, String> {
+    // Caché-family (Atelier v1) replacement: CLS times out server-side on large
+    // namespaces (HTTP 504 on a 51k-class namespace), and MAC/INT/INC are not
+    // v1 categories — RTN covers all three. Route through the SQL dictionary /
+    // RTN-filter fallback instead of the real endpoint. The entries come back
+    // in the same docnames shape (`{name, cat, ts}`) so the filtering below is
+    // unchanged; the glob_hint is only a volume pre-filter for the CLS SQL.
+    if iris.product.is_cache_family() {
+        return crate::tools::cache_compat::docnames_entries(
+            iris, client, namespace, cat, glob_hint,
+        )
+        .await;
+    }
     let url = iris.versioned_ns_url(namespace, &format!("/docnames/{cat}"));
     let resp = client
         .get(&url)
@@ -1779,7 +1792,11 @@ async fn handle_list(
 
     let mut all_docs: Vec<serde_json::Value> = Vec::new();
     for cat in cats {
-        match fetch_docnames_for_cat(iris, client, ns, cat).await {
+        // The glob_hint narrows the Caché-family CLS fallback (a LIKE over
+        // %Dictionary.ClassDefinition) to the pattern's leading literal
+        // prefix. On IRIS it is unused — the real endpoint is not filtered.
+        let hint = crate::tools::cache_compat::glob_prefix_hint(pattern);
+        match fetch_docnames_for_cat(iris, client, ns, cat, &hint).await {
             Ok(docs) => all_docs.extend(docs),
             Err(e) => {
                 return err_json(
