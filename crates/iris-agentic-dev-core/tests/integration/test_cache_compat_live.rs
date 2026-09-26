@@ -544,3 +544,151 @@ async fn iris_test_overbroad_glob_is_capped_on_cache() {
     );
 }
 
+// ── iris_table_info ───────────────────────────────────────────────────────────
+
+const SQL_STORE_CLASS: &str = "IadCacheTest.TableInfoSqlStore";
+// Short on purpose: Caché caps generated global names at 31 characters, and a
+// longer class name would come back hash-truncated (`…PlD974D`), which would
+// make the expected value server-dependent.
+const PLAIN_STORE_CLASS: &str = "IadCacheTest.PlainStore";
+
+/// A %CacheSQLStorage class — the legacy SQL mapping. %Dictionary.CompiledStorage
+/// reports no DataLocation/IndexLocation for it, so the globals only exist in the
+/// source Storage block's <SQLMap> entries. Glob layout copied from User.PAPatMas.
+async fn compile_sql_store_fixture(iris: &IrisConnection, client: &reqwest::Client) -> bool {
+    put_class(
+        iris,
+        client,
+        SQL_STORE_CLASS,
+        &[
+            &format!(
+                "Class {SQL_STORE_CLASS} Extends %Persistent [ StorageStrategy = SQLStorage ]"
+            ),
+            "{",
+            "Property Name As %String;",
+            "Index IdxOnName On Name [ IdKey ];",
+            "Storage SQLStorage",
+            "{",
+            "<SQLMap name=\"DataMasterMap\">",
+            "<Data name=\"Name\">",
+            "<Delimiter>\"^\"</Delimiter>",
+            "<Node>\"N\"</Node>",
+            "<Piece>1</Piece>",
+            "</Data>",
+            "<Global>^IadCacheTest.SQLStoreT</Global>",
+            "<RowIdSpec name=\"1\">",
+            "<Expression>{L1}</Expression>",
+            "<Field>Name</Field>",
+            "</RowIdSpec>",
+            "<Structure>delimited</Structure>",
+            "<Subscript name=\"1\">",
+            "<AccessType>sub</AccessType>",
+            "<Expression>{Name}</Expression>",
+            "<StartValue>1</StartValue>",
+            "</Subscript>",
+            "<Type>data</Type>",
+            "</SQLMap>",
+            "<SQLMap name=\"NameIdxMap\">",
+            "<Global>^IadCacheTest.SQLStoreTi</Global>",
+            "<RowIdSpec name=\"1\">",
+            "<Expression>{L1}</Expression>",
+            "<Field>Name</Field>",
+            "</RowIdSpec>",
+            "<Structure>delimited</Structure>",
+            "<Subscript name=\"1\">",
+            "<Expression>{Name}</Expression>",
+            "</Subscript>",
+            "<Type>index</Type>",
+            "</SQLMap>",
+            "<Type>%CacheSQLStorage</Type>",
+            "}",
+            "}",
+        ],
+    )
+    .await
+}
+
+#[tokio::test]
+#[ignore]
+async fn iris_table_info_reads_globals_from_sql_storage_source_on_cache() {
+    let Some(tools) = cache_tools().await else {
+        return;
+    };
+    let iris = tools_test_connection(&tools);
+    let client = reqwest::Client::new();
+    assert!(
+        compile_sql_store_fixture(&iris, &client).await,
+        "fixture must compile"
+    );
+    // The class lives in the IadCacheTest package, so its SQL schema is the
+    // package name — not SQLUser (which only covers the User package).
+    let v = call_tool(
+        &tools,
+        "iris_table_info",
+        serde_json::json!({ "table": SQL_STORE_CLASS }),
+    )
+    .await;
+    delete_fixture(&iris, &client, SQL_STORE_CLASS).await;
+    assert_eq!(v["success"].as_bool(), Some(true), "body: {v}");
+    let r = &v["result"];
+    assert_eq!(r["class"].as_str(), Some(SQL_STORE_CLASS), "body: {v}");
+    assert_eq!(
+        r["data_global"].as_str(),
+        Some("^IadCacheTest.SQLStoreT"),
+        "data global from the <SQLMap Type=\"data\"> block: {v}"
+    );
+    assert_eq!(
+        r["index_global"].as_str(),
+        Some("^IadCacheTest.SQLStoreTi"),
+        "index global from the <SQLMap Type=\"index\"> block: {v}"
+    );
+}
+
+#[tokio::test]
+#[ignore]
+async fn iris_table_info_dictionary_path_unchanged_for_default_storage_on_cache() {
+    let Some(tools) = cache_tools().await else {
+        return;
+    };
+    let iris = tools_test_connection(&tools);
+    let client = reqwest::Client::new();
+    assert!(
+        put_class(
+            &iris,
+            &client,
+            PLAIN_STORE_CLASS,
+            &[
+                &format!("Class {PLAIN_STORE_CLASS} Extends %Persistent"),
+                "{",
+                "Property Name As %String;",
+                "Index NameIdx On Name;",
+                "}",
+            ],
+        )
+        .await,
+        "fixture must compile"
+    );
+    let v = call_tool(
+        &tools,
+        "iris_table_info",
+        serde_json::json!({ "table": PLAIN_STORE_CLASS }),
+    )
+    .await;
+    delete_fixture(&iris, &client, PLAIN_STORE_CLASS).await;
+    assert_eq!(v["success"].as_bool(), Some(true), "body: {v}");
+    let r = &v["result"];
+    // Default storage answers from %Dictionary.CompiledStorage — the source
+    // fallback must not disturb this path.
+    let expected_data = format!("^{PLAIN_STORE_CLASS}D");
+    let expected_index = format!("^{PLAIN_STORE_CLASS}I");
+    assert_eq!(
+        r["data_global"].as_str(),
+        Some(expected_data.as_str()),
+        "body: {v}"
+    );
+    assert_eq!(
+        r["index_global"].as_str(),
+        Some(expected_index.as_str()),
+        "body: {v}"
+    );
+}

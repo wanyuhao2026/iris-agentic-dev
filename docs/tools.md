@@ -811,6 +811,14 @@ iris_table_info(table="MyApp.Patient")
 iris_table_info(table="MyApp.Patient", include_row_count=true)
 ```
 
+Backing globals come from `%Dictionary.CompiledStorage`. Classes using `%CacheSQLStorage`
+(the legacy SQL mapping, common in Caché-era schemas — e.g. `SQLUser.PA_PatMas`) have no
+`DataLocation`/`IndexLocation` in that dictionary; for those, the globals are read from the
+class source's `Storage` block instead — the data global from the `<SQLMap Type="data">`
+map's `<Global>`, the index global(s) from the `<SQLMap Type="index">` maps. When several
+index maps use distinct globals, `index_global` is an array of all of them (first-seen
+order); when they share one, it stays a plain string.
+
 ---
 
 ### `resolve_dynamic_dispatch`

@@ -594,13 +594,31 @@ if rs.%Next() {{
         let data_global = lines.get("DATA").copied().unwrap_or("").trim();
         let index_global = lines.get("INDEX").copied().unwrap_or("").trim();
 
+        // %CacheSQLStorage classes (the legacy SQL mapping, common in Caché-era schemas) have
+        // no DataLocation/IndexLocation in %Dictionary.CompiledStorage — their globals live in
+        // the source Storage block's <SQLMap> entries. When the dictionary has nothing, parse
+        // the class source instead of reporting null globals for a table that plainly has them.
+        let mut data_json = non_empty_or_null(data_global);
+        let mut index_json = non_empty_or_null(index_global);
+        if data_json.is_null() || index_json.is_null() {
+            if let Some(g) = fetch_class_storage_globals(iris, client, class_name, namespace).await
+            {
+                if data_json.is_null() {
+                    data_json = g.data_global.unwrap_or(serde_json::Value::Null);
+                }
+                if index_json.is_null() {
+                    index_json = g.index_global.unwrap_or(serde_json::Value::Null);
+                }
+            }
+        }
+
         let mut obj = serde_json::json!({
             "table": p.table,
             "type": "class_projection",
             "class": class_name,
             "namespace": namespace,
-            "data_global": if data_global.is_empty() { serde_json::Value::Null } else { data_global.into() },
-            "index_global": if index_global.is_empty() { serde_json::Value::Null } else { index_global.into() },
+            "data_global": data_json,
+            "index_global": index_json,
             "accessible_from_embedded_python": true,
         });
 
@@ -651,6 +669,170 @@ if rs.%Next() {{
         "success": true,
         "result": result,
     }))
+}
+
+/// The globals a class's Storage definition actually names, recovered from the class source
+/// when `%Dictionary.CompiledStorage` reports nothing. `index_global` is a string when every
+/// index map shares one global, an array when they don't.
+struct ClassStorageGlobals {
+    data_global: Option<serde_json::Value>,
+    index_global: Option<serde_json::Value>,
+}
+
+/// Fetch `<Class>.cls` over Atelier and read its Storage block. `None` when the document
+/// cannot be fetched or names no globals — callers keep their nulls in that case.
+async fn fetch_class_storage_globals(
+    iris: &crate::iris::connection::IrisConnection,
+    client: &reqwest::Client,
+    class_name: &str,
+    namespace: &str,
+) -> Option<ClassStorageGlobals> {
+    let doc_name = format!("{class_name}.cls");
+    let source = crate::tools::doc::fetch_doc_content(iris, client, &doc_name, namespace).await?;
+    let (data, indexes) = parse_storage_globals(&source);
+    if data.is_none() && indexes.is_empty() {
+        return None;
+    }
+    Some(ClassStorageGlobals {
+        data_global: data.map(serde_json::Value::from),
+        index_global: match indexes.len() {
+            0 => None,
+            1 => Some(serde_json::Value::from(indexes[0].clone())),
+            _ => Some(serde_json::Value::Array(
+                indexes.into_iter().map(serde_json::Value::from).collect(),
+            )),
+        },
+    })
+}
+
+/// Read the data and index globals out of a class body.
+///
+/// Default storage (`%Library.CacheStorage`) names them directly:
+/// `<DataLocation>^Pkg.ClassD</DataLocation>` / `<IndexLocation>^Pkg.ClassI</IndexLocation>`.
+/// `%CacheSQLStorage` — the legacy SQL mapping, common in Caché-era schemas — has neither;
+/// each `<SQLMap>` block carries its own `<Global>`, typed `data` or `index`. `{%%PARENT}`
+/// marks a child class that stores inside its parent's extent, which says nothing about
+/// this class's own global, so it is skipped.
+fn parse_storage_globals(source: &str) -> (Option<String>, Vec<String>) {
+    // First non-empty <DataLocation> that is not the {%%PARENT} placeholder.
+    let data = extract_storage_tag(source, "DataLocation")
+        .into_iter()
+        .find(|v| !v.is_empty() && v != "{%%PARENT}")
+        .or_else(|| sqlmap_globals(source, "data").into_iter().next());
+
+    let mut indexes = extract_storage_tag(source, "IndexLocation")
+        .into_iter()
+        .filter(|v| !v.is_empty())
+        .collect::<Vec<_>>();
+    if indexes.is_empty() {
+        indexes = sqlmap_globals(source, "index");
+    }
+
+    (data, indexes)
+}
+
+/// Every value of `<Tag>…</Tag>` that appears inside a `Storage … { }` block. Scanning is
+/// limited to Storage blocks so tags that happen to share a name with storage XML elsewhere
+/// in the source cannot leak in.
+fn extract_storage_tag(source: &str, tag: &str) -> Vec<String> {
+    let mut out = Vec::new();
+    let open = format!("<{tag}>");
+    let close = format!("</{tag}>");
+    for block in storage_blocks(source) {
+        let mut rest = block;
+        while let Some(i) = rest.find(&open) {
+            let after = &rest[i + open.len()..];
+            if let Some(j) = after.find(&close) {
+                out.push(after[..j].trim().to_string());
+                rest = &after[j + close.len()..];
+            } else {
+                break;
+            }
+        }
+    }
+    out
+}
+
+/// The bodies of all `Storage <name> { … }` blocks in a class source. The `Storage` keyword
+/// must sit at the start of a line (not inside a comment or a keyword like `StorageStrategy`),
+/// and the text between it and the opening `{` is at most the storage name plus one line
+/// break. The block closes on the `}` that sits at the start of its own line.
+fn storage_blocks(source: &str) -> Vec<&str> {
+    let mut out = Vec::new();
+    let mut pos = 0;
+    while let Some(rel) = source[pos..].find("Storage ") {
+        let start = pos + rel;
+        let at_line_start = start == 0 || source[..start].ends_with('\n');
+        if !at_line_start {
+            pos = start + 1;
+            continue;
+        }
+        let after = &source[start..];
+        let open = match after.find('{') {
+            Some(i) => i,
+            None => {
+                pos = start + 1;
+                continue;
+            }
+        };
+        let header = &after[..open];
+        if header.matches('\n').count() > 1 || header.contains('/') {
+            pos = start + 1;
+            continue;
+        }
+        let close = match after[open..].find("\n}") {
+            Some(i) => i,
+            None => {
+                pos = start + 1;
+                continue;
+            }
+        };
+        out.push(&after[open + 1..open + close]);
+        // Skip past the closing "\n}" so the next scan starts after this block.
+        pos = start + open + close + 2;
+    }
+    out
+}
+
+/// Distinct `<Global>` values of `<SQLMap>` blocks whose `<Type>` matches, in first-seen order.
+fn sqlmap_globals(source: &str, map_type: &str) -> Vec<String> {
+    let type_tag = format!("<Type>{map_type}</Type>");
+    let mut out: Vec<String> = Vec::new();
+    let mut rest = source;
+    while let Some(i) = rest.find("<SQLMap") {
+        let end = rest[i..]
+            .find("</SQLMap>")
+            .map(|j| i + j)
+            .unwrap_or(rest.len());
+        let block = &rest[i..end];
+        if block.contains(&type_tag) {
+            if let Some(g) = tag_value(block, "Global") {
+                if !g.is_empty() && !out.contains(&g) {
+                    out.push(g);
+                }
+            }
+        }
+        rest = &rest[end..];
+    }
+    out
+}
+
+/// The first `<Tag>value</Tag>` inside `block`, trimmed.
+fn tag_value(block: &str, tag: &str) -> Option<String> {
+    let open = format!("<{tag}>");
+    let close = format!("</{tag}>");
+    let i = block.find(&open)?;
+    let after = &block[i + open.len()..];
+    let j = after.find(&close)?;
+    Some(after[..j].trim().to_string())
+}
+
+fn non_empty_or_null(s: &str) -> serde_json::Value {
+    if s.is_empty() {
+        serde_json::Value::Null
+    } else {
+        s.into()
+    }
 }
 
 async fn get_row_count(
@@ -786,5 +968,116 @@ mod tests {
     fn test_table_info_params_missing_table_fails() {
         let r: Result<TableInfoParams, _> = serde_json::from_str(r#"{}"#);
         assert!(r.is_err());
+    }
+
+    // ── parse_storage_globals ────────────────────────────────────────────────
+
+    /// Minimal but structurally faithful to what Caché 2016.2 emits for a
+    /// %CacheSQLStorage class (glob layout copied from User.PAPatMas).
+    const CACHE_SQL_STORAGE_SRC: &str = r#"Class User.Demo Extends %Persistent [ StorageStrategy = SQLStorage ]
+{
+Property Name As %String;
+Storage SQLStorage
+{
+<SQLMap name="DataMasterMap">
+<Global>^PAPER</Global>
+<Type>data</Type>
+</SQLMap>
+<SQLMap name="IndexName">
+<Global>^PAPERi</Global>
+<Type>index</Type>
+</SQLMap>
+<SQLMap name="IndexOther">
+<Global>^PAPERi</Global>
+<Type>index</Type>
+</SQLMap>
+<Type>%CacheSQLStorage</Type>
+}
+}
+"#;
+
+    const DEFAULT_STORAGE_SRC: &str = r#"Class IadCacheTest.ProbeStore Extends %Persistent
+{
+Storage Default
+{
+<DataLocation>^IadCacheTest.ProbeStoreD</DataLocation>
+<IdLocation>^IadCacheTest.ProbeStoreD</IdLocation>
+<IndexLocation>^IadCacheTest.ProbeStoreI</IndexLocation>
+<Type>%Library.CacheStorage</Type>
+}
+}
+"#;
+
+    #[test]
+    fn parse_storage_globals_reads_sqlmap_globals_for_cache_sql_storage() {
+        let (data, indexes) = parse_storage_globals(CACHE_SQL_STORAGE_SRC);
+        assert_eq!(data.as_deref(), Some("^PAPER"));
+        // Two index maps, one shared global → deduplicated to one entry.
+        assert_eq!(indexes, vec!["^PAPERi".to_string()]);
+    }
+
+    #[test]
+    fn parse_storage_globals_reads_location_tags_for_default_storage() {
+        let (data, indexes) = parse_storage_globals(DEFAULT_STORAGE_SRC);
+        assert_eq!(data.as_deref(), Some("^IadCacheTest.ProbeStoreD"));
+        assert_eq!(indexes, vec!["^IadCacheTest.ProbeStoreI".to_string()]);
+    }
+
+    #[test]
+    fn parse_storage_globals_deduplicates_distinct_index_globals_in_order() {
+        let src = r#"Storage SQLStorage
+{
+<SQLMap name="A">
+<Global>^Idx1</Global>
+<Type>index</Type>
+</SQLMap>
+<SQLMap name="B">
+<Global>^Idx2</Global>
+<Type>index</Type>
+</SQLMap>
+<SQLMap name="C">
+<Global>^Idx1</Global>
+<Type>index</Type>
+</SQLMap>
+}
+"#;
+        let (data, indexes) = parse_storage_globals(src);
+        assert!(data.is_none(), "no data map: {data:?}");
+        assert_eq!(
+            indexes,
+            vec!["^Idx1".to_string(), "^Idx2".to_string()],
+            "first-seen order, duplicates collapsed"
+        );
+    }
+
+    #[test]
+    fn parse_storage_globals_skips_parent_placeholder_data_location() {
+        // %UnitTest.Result.TestSuite style child storage: {%%PARENT} says nothing about
+        // this class's own global, so data must come from SQLMaps or stay None.
+        let src = r#"Storage Default
+{
+<DataLocation>{%%PARENT}</DataLocation>
+<IndexLocation>^Parent.I</IndexLocation>
+}
+"#;
+        let (data, indexes) = parse_storage_globals(src);
+        assert!(data.is_none(), "{{%%PARENT}} is not a global: {data:?}");
+        assert_eq!(indexes, vec!["^Parent.I".to_string()]);
+    }
+
+    #[test]
+    fn parse_storage_globals_on_source_without_storage_block() {
+        let (data, indexes) = parse_storage_globals("Class Foo Extends %RegisteredObject\n{\n}\n");
+        assert!(data.is_none());
+        assert!(indexes.is_empty());
+    }
+
+    #[test]
+    fn storage_blocks_handles_multiple_named_blocks() {
+        let src = "Storage One\n{\n<DataLocation>^A</DataLocation>\n}\nStorage Two\n{\n<DataLocation>^B</DataLocation>\n}\n";
+        assert_eq!(
+            extract_storage_tag(src, "DataLocation"),
+            vec!["^A".to_string(), "^B".to_string()]
+        );
     }
 }
