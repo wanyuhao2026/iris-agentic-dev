@@ -6,6 +6,13 @@
 //! as an empty string, and 27 call sites reported empty output as a successful result — the
 //! 1.3.0 `iris_system_performance` bug.
 //!
+//! Since the device-recovery change, a drift to a *readable file* is recovered: the wrapper
+//! closes the hijacked device, reads its contents back, and appends them to the captured
+//! output. That is what makes server-side source-control hooks (iMedical on Caché, which
+//! redirects the device even for `Write "hello"`) usable through the generator. The error
+//! survives only for a drift to a non-file device (terminal, TCP) whose output cannot be
+//! read back at all.
+//!
 //! Run with:
 //!   IRIS_HOST=localhost IRIS_WEB_PORT=52780 \
 //!   cargo test --features testing --test test_generator_device_live -- --ignored --nocapture
@@ -33,15 +40,17 @@ fn make_conn() -> Option<(IrisConnection, reqwest::Client)> {
     Some((conn, reqwest::Client::new()))
 }
 
-/// Code that steals the device must fail loudly, not return an empty success.
+/// A drift to another *file* is recovered: the wrapper closes the hijacked device and
+/// reads its contents back, so output written after the drift comes home.
 #[tokio::test]
 #[ignore]
-async fn stolen_device_is_reported_as_an_error() {
+async fn stolen_file_device_output_is_read_back() {
     let Some((conn, client)) = make_conn() else {
         return;
     };
 
     let code = r#" Set f="/tmp/iad_device_drift_test.txt"
+ Do ##class(%Library.File).Delete(f)
  Open f:("WNS"):5
  Use f
  Write "this output goes to the wrong device"
@@ -52,12 +61,39 @@ async fn stolen_device_is_reported_as_an_error() {
         .expect("the call itself must succeed — the failure is in the output");
 
     assert!(
-        is_generator_error(&out),
-        "a stolen device must be a generator error, got {out:?}"
+        !is_generator_error(&out),
+        "a stolen *file* device is recoverable, got {out:?}"
     );
     assert!(
-        out.contains("ERROR($DEVICE)") && out.contains("Use io"),
-        "the error must name the shape and the fix, got {out:?}"
+        out.contains("this output goes to the wrong device"),
+        "the hijacked file's contents must be read back, got {out:?}"
+    );
+}
+
+/// A drift to a non-file device (the principal device) cannot be read back — that
+/// must still fail loudly, never return an empty success.
+#[tokio::test]
+#[ignore]
+async fn stolen_non_file_device_is_still_an_error() {
+    let Some((conn, client)) = make_conn() else {
+        return;
+    };
+
+    let code = r#" Use 0
+ Write "this goes to the terminal and is lost"
+"#;
+    let out = conn
+        .execute_via_generator(code, "USER", &client)
+        .await
+        .expect("the call itself must succeed — the failure is in the output");
+
+    assert!(
+        is_generator_error(&out),
+        "a stolen non-file device must be a generator error, got {out:?}"
+    );
+    assert!(
+        out.contains("ERROR($DEVICE)") && out.contains("could not be read back"),
+        "the error must name the shape and the recovery failure, got {out:?}"
     );
 }
 

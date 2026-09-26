@@ -730,24 +730,61 @@ impl IrisConnection {
             // output — but WITHOUT writing to tmpfile yet (see the out="" test below).
             "  Set ze = $ZError".into(),
             "  Close tmpfile".into(),
+            // The device may have drifted to another *file*: server-side source-control
+            // hooks (iMedical on Caché) redirect it during the body, and user code can
+            // too. Close that device so its buffer flushes — a file still held open by
+            // the hook's device often reads back empty. Non-file devices (terminal, TCP)
+            // refuse the Close inside the Try and we fall through to the error below.
+            "  If (devio'=tmpfile)&&(devio'=\"\") { Try { Close devio } Catch {} }".into(),
             "  Use savedIO".into(),
             // Read captured output from temp file and return it.
             "  Set out = \"\"".into(),
+            "  Set recovered = 0".into(),
             "  Set stream = ##class(%Stream.FileCharacter).%New()".into(),
             "  Set sc = stream.LinkToFile(tmpfile)".into(),
             "  If $$$ISOK(sc) {".into(),
             "    While 'stream.AtEnd { Set out = out _ stream.ReadLine() _ $Char(10) }".into(),
             "  }".into(),
             "  Do ##class(%Library.File).Delete(tmpfile)".into(),
+            // Device drift is RECOVERABLE when the drift target is a readable file with
+            // content: everything the body (and the hook) wrote went there, so read it
+            // back. This is what makes source-control-hook servers — where even
+            // `Write "hello"` tripped the old always-error guard — usable through the
+            // generator. Mirror-type hooks (iMedical) copy everything into their file,
+            // so the recovered text may already contain the capture file's contents —
+            // appending blindly would duplicate the output (verified on Caché 2016.2.3:
+            // `Write "hello"` came back twice). When the recovered text already
+            // contains what the capture file held, keep the recovered copy alone;
+            // otherwise append. `recovered` is set only when the read actually produced
+            // text: the body's trailing sentinel `Write !` guarantees a readable
+            // hijacked file has at least one line, so an empty read (the null device,
+            // or a truncated file) means the output really is gone and the guard fires.
+            "  If (devio'=tmpfile)&&(devio'=\"\") {".into(),
+            "    Try {".into(),
+            "      Set hij = \"\"".into(),
+            "      Set stream = ##class(%Stream.FileCharacter).%New()".into(),
+            "      Set sc = stream.LinkToFile(devio)".into(),
+            "      If $$$ISOK(sc) {".into(),
+            "        While 'stream.AtEnd { Set hij = hij _ stream.ReadLine() _ $Char(10) }".into(),
+            "      }".into(),
+            "      If hij'=\"\" {".into(),
+            "        Set recovered = 1".into(),
+            "        If (out'=\"\") && (hij[out) { Set out = hij }".into(),
+            "        Else { Set out = out _ hij }".into(),
+            "      }".into(),
+            "    } Catch {}".into(),
+            "  }".into(),
             // Only surface a non-exception $ZERROR when the body produced NO output.
             // A residual like <ENDOFFILE> is often left as a benign side effect of an
             // SCM provider's internal Read even when the operation fully succeeded;
             // appending it to a non-empty result corrupted otherwise-valid output.
             "  If (out=\"\") && (ze'=\"\") && (ze'=\",\") { Set out = \"ERROR($ZERROR): \"_ze_$Char(10) }"
                 .into(),
-            // Whatever we captured is partial when the device moved, so refuse the whole
-            // result rather than hand back a plausible-looking fragment.
-            "  If devio'=tmpfile { Set out = \"ERROR($DEVICE): the called code left the current device set to \"\"\"_devio_\"\"\" instead of the capture file, so its output was written elsewhere and is lost. Snapshot and restore around the call: Set io=$IO / <call> / Use io\"_$Char(10) }"
+            // The captured output is partial only when the drift target could not be
+            // read back (a non-file device, or an unreadable one). `recovered=1` means
+            // the hijacked device WAS a readable file and its contents are already
+            // appended to `out` above — nothing was lost, so the guard stays silent.
+            "  If (devio'=tmpfile)&&('recovered) { Set out = \"ERROR($DEVICE): the called code left the current device set to \"\"\"_devio_\"\"\" and its output could not be read back from that device (not a readable file). If even a trivial Write \"\"hello\"\" hits this, a server-side source-control hook is redirecting the device and the generator cannot recover it\"_$Char(10) }"
                 .into(),
             "  Quit out".into(),
             "}".into(),
@@ -1634,6 +1671,58 @@ mod pure_fn_tests {
         assert!(
             joined.contains("SqlProc"),
             "method must still be SqlProc so it can be called via SQL"
+        );
+    }
+
+    // ── device-drift recovery (source-control-hook servers) ───────────────────
+    //
+    // The wrapper's tail used to refuse the whole result whenever the body left
+    // the current device pointing anywhere but the capture file. On servers with
+    // an invasive source-control hook (iMedical on Caché) even `Write "hello"`
+    // trips that, so every generator-backed tool died. The tail now closes the
+    // hijacked device, reads its contents back via LinkToFile, and appends them;
+    // `recovered` is set only when the read actually grew `out` — the body's
+    // trailing sentinel `Write !` guarantees a readable hijacked file has at
+    // least one line, so an empty read still fails loudly instead of silently
+    // returning a plausible fragment (the 1.3.0 empty-success bug).
+
+    #[test]
+    fn build_exec_class_reads_back_hijacked_file_device() {
+        let joined =
+            IrisConnection::build_exec_class_for_test("T", "/tmp/t.txt", "Write 1").join("\n");
+        assert!(
+            joined.contains("LinkToFile(devio)"),
+            "the wrapper must read the hijacked device's file back: {joined}"
+        );
+        assert!(
+            joined.contains("Try { Close devio } Catch {}"),
+            "the hijacked device must be closed (flush) but never let a non-file Close kill the method"
+        );
+        assert!(
+            joined.contains("If hij'=\"\" {"),
+            "recovered must require the read-back to actually produce text, else an empty hijacked file (the null device) silently loses output"
+        );
+        assert!(
+            joined.contains("(hij[out) { Set out = hij }"),
+            "a mirror-type hook copies the whole stream into its file, so when the recovered text already contains the captured text the recovered copy must replace it, not be appended (verified: Write \"hello\" came back twice)"
+        );
+    }
+
+    #[test]
+    fn build_exec_class_device_error_is_gated_on_failed_recovery() {
+        let joined =
+            IrisConnection::build_exec_class_for_test("T", "/tmp/t.txt", "Write 1").join("\n");
+        assert!(
+            joined.contains("If (devio'=tmpfile)&&('recovered)"),
+            "ERROR($DEVICE) must fire only when the hijacked device could NOT be read back, not on every drift"
+        );
+        assert!(
+            joined.contains("could not be read back from that device"),
+            "the error text must describe the recovery failure, not the drift itself"
+        );
+        assert!(
+            !joined.contains("Snapshot and restore around the call"),
+            "the old advice is wrong on hook servers — user code cannot fix a hook that redirects after every Use; it must not be suggested unconditionally"
         );
     }
 }
