@@ -406,16 +406,20 @@ pub fn resolve_credential(server_name: &str, username: &str) -> Result<String, S
 
     // On Windows, Server Manager stores credentials in VS Code's state.vscdb
     // (safeStorage / AES-256-GCM), not in Windows Credential Manager. Try
-    // state.vscdb whenever WCM has no entry or is unavailable.
+    // state.vscdb whenever WCM has no entry or is unavailable. The WCM failure
+    // reason rides along in the debug log; the vscdb answer replaces it.
     #[cfg(target_os = "windows")]
     {
-        tracing::debug!("WCM lookup failed for '{server_name}', trying state.vscdb fallback");
-        return resolve_vscode_secret(server_name, &account, None).map_err(|e| {
+        tracing::debug!(
+            "WCM lookup failed for '{server_name}' ({}), trying state.vscdb fallback",
+            wcm_result.err().map(|e| e.to_string()).unwrap_or_default()
+        );
+        resolve_vscode_secret(server_name, &account, None).map_err(|e| {
             SmCredentialError::KeychainError {
                 server_name: server_name.to_string(),
                 detail: e,
             }
-        });
+        })
     }
 
     #[cfg(not(target_os = "windows"))]
@@ -564,7 +568,7 @@ fn current_windows_username() -> Option<String> {
 fn vscdb_dpapi_decrypt(ciphertext: &[u8], what: &str) -> Result<Vec<u8>, String> {
     use windows::Win32::Security::Cryptography::{CryptUnprotectData, CRYPT_INTEGER_BLOB};
 
-    let mut input = CRYPT_INTEGER_BLOB {
+    let input = CRYPT_INTEGER_BLOB {
         cbData: ciphertext.len() as u32,
         pbData: ciphertext.as_ptr() as *mut u8,
     };
@@ -573,7 +577,7 @@ fn vscdb_dpapi_decrypt(ciphertext: &[u8], what: &str) -> Result<Vec<u8>, String>
         pbData: std::ptr::null_mut(),
     };
 
-    let ok = unsafe { CryptUnprotectData(&mut input, None, None, None, None, 0, &mut output) };
+    let ok = unsafe { CryptUnprotectData(&input, None, None, None, None, 0, &mut output) };
 
     if ok.is_err() {
         let err = std::io::Error::last_os_error();
