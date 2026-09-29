@@ -31,11 +31,15 @@ pub struct CompileCommand {
 
 impl CompileCommand {
     pub async fn run(self) -> Result<()> {
-        let namespace = self.conn.namespace.clone();
         let flags = self.flags.clone();
         let format = self.format.clone();
 
+        // Namespace from the RESOLVED connection, not self.conn: clap's "USER"
+        // default passed as an explicit tool parameter would override the namespace
+        // the workspace toml configured into the connection (resolve_namespace gives
+        // the param precedence).
         let iris = self.conn.resolve().await?;
+        let namespace = iris.namespace.clone();
 
         if self.files.is_empty() {
             // Legacy toml-based compile (original behavior preserved). This is a

@@ -21,8 +21,12 @@ pub struct QueryCommand {
 
 impl QueryCommand {
     pub async fn run(self) -> Result<()> {
-        let namespace = self.conn.namespace.clone();
+        // Namespace from the RESOLVED connection, not self.conn: clap's "USER"
+        // default passed as an explicit tool parameter would override the namespace
+        // the workspace toml configured into the connection (resolve_namespace gives
+        // the param precedence).
         let iris = self.conn.resolve().await?;
+        let namespace = iris.namespace.clone();
 
         let mut args = serde_json::json!({ "query": self.sql, "namespace": namespace });
         if let Some(server) = &self.server {

@@ -58,8 +58,6 @@ impl ExecCommand {
     }
 
     pub async fn run(self) -> Result<()> {
-        let namespace = self.conn.namespace.clone();
-
         let code = match self.source() {
             CodeSource::Inline(s) => s,
             CodeSource::Stdin => {
@@ -74,6 +72,12 @@ impl ExecCommand {
         };
 
         let iris = self.conn.resolve().await?;
+
+        // Namespace from the RESOLVED connection, not self.conn: clap's "USER"
+        // default passed as an explicit tool parameter would override the namespace
+        // the workspace toml configured into the connection (resolve_namespace gives
+        // the param precedence).
+        let namespace = iris.namespace.clone();
 
         // iris_execute's own role-gate only fires for a fleet "operate mode" Subject
         // instance — it does not enforce this check for the default connection role, so
