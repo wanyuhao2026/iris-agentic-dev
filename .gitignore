@@ -25,6 +25,7 @@ Thumbs.db
 *.log
 target/
 .claude/settings.local.json
+.scratch/
 benchmark/021/results/
 docs/*.txt
 # Article drafts go in ~/writing/iris-agentic-dev/ — not tracked here
