@@ -468,6 +468,7 @@ blocked and how to permit it.
 | `iris_global`         | Read, write, kill, or list IRIS global nodes. Patient-data and system globals are gated.         |
 | `iris_coverage`       | Measure ObjectScript line coverage via `%Monitor.System.LineByLine`.                            |
 | `iris_source_control` ✦ | Check lock status, checkout, execute SCM actions.                                             |
+| `iris_sync`          | Upload a local file and compile it — save-sync, also a PostToolUse hook via `sync --hook`.   |
 
 ### Search and introspection
 
@@ -576,6 +577,7 @@ iris-agentic-dev tool --list                      # List every tool, no connecti
 iris-agentic-dev tool <name> --schema             # Print one tool's parameters
 iris-agentic-dev batch --file steps.json          # Several tool calls in one process
 iris-agentic-dev compile MyApp.Foo.cls            # Compile from the terminal
+iris-agentic-dev sync src/ABN/X.cls               # Upload + compile a local file (save-sync)
 iris-agentic-dev skill install [names]            # Install skills
 iris-agentic-dev skill list                       # Check skill install status
 iris-agentic-dev init                             # Generate .iris-agentic-dev.toml

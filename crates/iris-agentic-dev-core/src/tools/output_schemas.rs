@@ -2345,6 +2345,69 @@ pub enum IrisDocResponse {
     Err(ToolError),
 }
 
+// ── iris_sync ─────────────────────────────────────────────────────────────────
+//
+// The save-sync tool: upload a local file, compile it when the type needs compiling.
+// Mirrors the VS Code ObjectScript plugin's save behavior for agent-driven
+// development, where nothing else watches the filesystem.
+//
+// `compile` is `Option` rather than a fixed shape because the static-web branch
+// (upload only, plugin behavior) has no compile step to report — `None` serializes
+// away, so an upload-only response carries no `compile` key at all rather than a
+// misleading `compile: null`.
+
+/// Compiler console + errors for the compile step of a sync, in the shape
+/// `iris.compile_document` already returns.
+#[derive(Debug, Serialize, JsonSchema)]
+pub struct IrisSyncCompileResult {
+    pub success: bool,
+    pub errors: Vec<String>,
+    pub console: Vec<String>,
+}
+
+#[derive(Debug, Serialize, JsonSchema)]
+pub struct IrisSyncOk {
+    pub success: bool,
+    /// Workspace-relative path of the file that was synced, forward slashes.
+    pub file: String,
+    /// Server document name the content landed in.
+    pub document: String,
+    /// `"class"`, `"routine"`, `"csp"`, or `"web"` (web = static file, upload only).
+    pub category: String,
+    /// `"uploaded+compiled"` or `"uploaded"`.
+    pub action: String,
+    /// Present only for the code kinds (class/routine/csp); absent for static web files.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub compile: Option<IrisSyncCompileResult>,
+    pub namespace: String,
+}
+
+/// The upload succeeded but the compile did not. Carries the same fields as
+/// [`IrisSyncOk`] plus the failure, so a hook or CLI caller can branch on
+/// `error_code` alone and still read `file`/`document`/`compile` from one response.
+#[derive(Debug, Serialize, JsonSchema)]
+pub struct IrisSyncCompileError {
+    pub success: bool,
+    pub error_code: String,
+    /// First compiler error — the one to fix in the local file.
+    pub error: String,
+    pub file: String,
+    pub document: String,
+    pub category: String,
+    /// `"uploaded+compile_failed"`.
+    pub action: String,
+    pub compile: Option<IrisSyncCompileResult>,
+    pub namespace: String,
+}
+
+#[derive(Debug, Serialize, JsonSchema)]
+#[serde(untagged)]
+pub enum IrisSyncResponse {
+    Ok(IrisSyncOk),
+    CompileFailed(IrisSyncCompileError),
+    Err(ToolError),
+}
+
 // ── iris_coverage ────────────────────────────────────────────────────────────
 //
 // A fourth error-shape convention, distinct from `ToolError`: this tool's own local

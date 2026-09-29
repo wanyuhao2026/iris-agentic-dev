@@ -30,6 +30,7 @@ unless there is something non-obvious to say about it.
 | [`iris_coverage`](#iris_coverage)                                 | Code                      |
 | [`iris_global`](#iris_global-) 🔒                                 | Code                      |
 | [`iris_source_control`](#iris_source_control-) ✦                  | Code                      |
+| [`iris_sync`](#iris_sync)                                         | Code                      |
 | [`iris_symbols`](#iris_symbols)                                   | Search and introspection  |
 | [`iris_symbols_local`](#iris_symbols_local)                       | Search and introspection  |
 | [`docs_introspect`](#docs_introspect)                             | Search and introspection  |
@@ -124,8 +125,8 @@ Six tools take no parameters at all and declare an empty property set: `agent_st
 
 ## Tool catalog size
 
-This server exposes 80 to 84 tools depending on toolset (`IRIS_TOOLSET=baseline|nostub|merged`),
-with full schemas and descriptions: 94 KB to 107 KB of JSON, roughly 26K to 30K tokens, if a
+This server exposes 81 to 85 tools depending on toolset (`IRIS_TOOLSET=baseline|nostub|merged`),
+with full schemas and descriptions: 95 KB to 107 KB of JSON, roughly 24K to 27K tokens, if a
 client loads the whole catalog on every connection. Two independent ways to avoid paying that
 cost, and you don't have to pick just one:
 
@@ -149,14 +150,14 @@ cost, and you don't have to pick just one:
 `tool --list` prints one line per tool — name and a one-sentence summary. `tool <name>
 --schema` prints one tool's full description and `inputSchema`. Both read the same router
 `tools/list` reads, so the schema you get from the CLI is byte-identical to the schema an MCP
-client receives, and a test compares all 81 for every build.
+client receives, and a test compares all 82 for every build.
 
 Neither path connects to IRIS. Discovery works with no container running, no credentials, and
 a closed port:
 
 ```bash
-iris-agentic-dev tool --list                      # 81 names + summaries
-iris-agentic-dev tool --list --json               # same, as {"count": 81, "tools": [...]}
+iris-agentic-dev tool --list                      # 82 names + summaries
+iris-agentic-dev tool --list --json               # same, as {"count": 82, "tools": [...]}
 iris-agentic-dev tool iris_query --schema         # one tool's contract
 iris-agentic-dev tool iris_query --schema --json  # same, as one JSON document
 ```
@@ -168,13 +169,13 @@ Why it exists — measured against this tree:
 
 | Reading the surface via              | Bytes   |
 | ------------------------------------ | ------- |
-| MCP `tools/list` (81 tools, compact) | 106,658 |
-| `tool --list`                        | 7,648   |
+| MCP `tools/list` (82 tools, compact) | 109,379 |
+| `tool --list`                        | 7,777   |
 | `tool <name> --schema`, smallest     | 231     |
-| `tool <name> --schema`, median       | 1,357   |
+| `tool <name> --schema`, median       | 1,361   |
 | `tool <name> --schema`, largest      | 10,134  |
 
-An agent with only a shell reads the whole surface for 7.6 KB and then pays for the one or two
+An agent with only a shell reads the whole surface for 7.8 KB and then pays for the one or two
 schemas it actually needs, instead of 107 KB up front. A wrong name is refused with the nearest
 accepted name, the same suggestion `UNKNOWN_PARAMETER` uses for misspelled parameters.
 
@@ -373,6 +374,48 @@ Returns errors with line numbers.
 ```text
 iris_compile(target="MyApp.MyClass.cls")
 iris_compile(target="MyApp.*.cls", flags="cukd")
+```
+
+---
+
+### `iris_sync`
+
+Upload a local file to the server and compile it when the type needs compiling — the VS Code
+ObjectScript plugin's save-on-write behavior, for agent-driven development where nothing else
+watches the filesystem. `.cls` / `.mac` / `.int` / `.inc` / `.csp` upload + compile; static web
+files (`.js` / `.css` / `.html` / `.svg` / `.json`) upload only.
+
+| Parameter   | Type   | Default  | Notes                                                                 |
+| ----------- | ------ | -------- | --------------------------------------------------------------------- |
+| `path`      | string | —        | **Required.** Local file: absolute, or relative to the workspace root |
+| `flags`     | string | `"cuk"`  | Compile flags; overridable via `[sync].flags` in the toml             |
+| `namespace` | string | `"USER"` |                                                                       |
+| `server`    | string | —        | Named registered instance                                             |
+
+Path mapping, relative to the workspace root (the directory `.iris-agentic-dev.toml` is read
+from):
+
+- `src/ABN/X.cls` → `ABN.X.cls` — and when the file's `Class` declaration names a different
+  class, the declaration wins
+- `src/Nur/DateFormat.inc` → `Nur.DateFormat.inc`; `src/addloc.mac` → `addloc.mac`
+- web files go through a `[[sync.web_roots]]` mapping:
+
+```toml
+[sync]
+flags = "cuk"
+
+[[sync.web_roots]]
+local  = "src/dthealth/web"
+server = "/dthealth/web"
+```
+
+An unmapped web root is refused with `NOT_SYNCABLE`, never a guessed server path. Error codes:
+`FILE_NOT_FOUND`, `READ_ERROR`, `NOT_SYNCABLE`, `UPLOAD_FAILED`, `COMPILE_ERROR`. `COMPILE_ERROR`
+carries the full compiler console so the local file can be fixed and re-synced.
+
+```text
+iris_sync(path="src/ABN/DHCNurBadResponse.cls")
+iris_sync(path="src/dthealth/web/csp/dh.logon.csp")
 ```
 
 ---

@@ -72,6 +72,7 @@ pub const TOOL_NAMES: &[&str] = &[
     "iris_source_control",
     "iris_symbols",
     "iris_symbols_local",
+    "iris_sync",
     "iris_system_performance",
     "iris_table_info",
     "iris_test",
@@ -381,7 +382,7 @@ impl ToolCommand {
     /// `--list` and `--schema`: the discovery half, which never touches a connection.
     ///
     /// A shell-only caller can read the whole surface for about 6 KB and one tool's contract for
-    /// about 1 KB, instead of the ~104 KB an MCP `tools/list` costs before the first call. Both
+    /// about 1 KB, instead of the ~107 KB an MCP `tools/list` costs before the first call. Both
     /// answers come from `IrisTools::tool_catalogue()`, which is the same list `tools/list` serves,
     /// so this cannot advertise a tool the server does not have.
     ///

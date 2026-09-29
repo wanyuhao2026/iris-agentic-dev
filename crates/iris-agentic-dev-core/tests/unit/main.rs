@@ -93,6 +93,7 @@ mod test_sql_safety;
 mod test_sql_translate;
 mod test_structured_content;
 mod test_suppress_description;
+mod test_sync_unit;
 mod test_system_blocklist;
 mod test_telemetry_local_io;
 mod test_telemetry_prune;

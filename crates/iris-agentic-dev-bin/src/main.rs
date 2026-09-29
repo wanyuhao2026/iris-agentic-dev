@@ -44,6 +44,8 @@ enum Commands {
     Install(cmd::install::InstallCommand),
     /// Run the skill/tool benchmark harness (pass_rate/lift scoring against the ported task suite)
     Benchmark(cmd::benchmark::BenchmarkCommand),
+    /// Sync local files to the server (upload + compile) — also the PostToolUse hook entry point
+    Sync(cmd::sync::SyncCommand),
     /// Install and manage the official InterSystems skill pack
     Skill(cmd::skill::SkillCommand),
     /// Run a batch of tool calls from a JSON script (one process, shared session state)
@@ -99,6 +101,7 @@ async fn main() -> Result<()> {
         Some(Commands::Init(cmd)) => cmd.run().await,
         Some(Commands::Install(cmd)) => cmd.run().await,
         Some(Commands::Benchmark(cmd)) => cmd.run().await,
+        Some(Commands::Sync(cmd)) => cmd.run().await,
         Some(Commands::Skill(cmd)) => cmd.run().await,
         Some(Commands::Batch(cmd)) => cmd.run().await,
         Some(Commands::CheckSmCredential(cmd)) => cmd.run().await,

@@ -25,7 +25,7 @@ fn the_tool_inventory_is_the_whole_surface() {
     );
 }
 
-/// The load-bearing assertion. `read_keys` must answer for all 81 tools today, before any
+/// The load-bearing assertion. `read_keys` must answer for every registered tool today, before any
 /// conversion — which means its typed-struct branch has to work for the 50 already-typed tools and
 /// its `p.get` branch for the 31 `AnyParams` ones.
 ///

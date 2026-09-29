@@ -431,6 +431,29 @@ wins for any name present in both lists.
 See also: `provides.tools` in a project manifest (`docs/ecosystem-integration.md`) for
 declaring a team-wide tool subset that installs automatically.
 
+## Save-sync (`iris_sync` / `sync`)
+
+`iris_sync` uploads a local file to the server and compiles it when the type needs
+compiling — the VS Code ObjectScript plugin's save-on-write behavior, for agent-driven
+development where nothing else watches the filesystem. The `sync` subcommand is its CLI
+entry point: `sync <FILES...>` syncs named files, and `sync --hook` reads one Claude Code
+PostToolUse payload from stdin, exiting 2 on failure so a compile error reaches the model
+that just edited the file. Path-mapping rules and error codes are in the
+[tools reference](tools.md#iris_sync).
+
+Web files (`.csp` and static `.js`/`.css`/`.html`/`.svg`/`.json`) upload to a server path,
+which cannot be guessed from a local one — an unmapped web root is refused with
+`NOT_SYNCABLE` rather than uploaded somewhere wrong. Declare the mapping explicitly:
+
+```toml
+[sync]
+flags = "cuk"                 # compile flags after upload, default "cuk"
+
+[[sync.web_roots]]
+local  = "src/dthealth/web"   # relative to the workspace root
+server = "/dthealth/web"      # server web root, leading slash
+```
+
 ## Any MCP client (Antigravity, Cline, Continue, Zed, Claude Desktop)
 
 The VS Code extension is a convenience wrapper. The MCP server itself is one static

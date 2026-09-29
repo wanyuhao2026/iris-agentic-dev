@@ -1,6 +1,6 @@
 //! Aggregated integration-test target for the binary crate.
 //!
-//! These 14 files were 14 separate `[[test]]` targets. Cargo runs test binaries one after another,
+//! These 15 files were 15 separate `[[test]]` targets. Cargo runs test binaries one after another,
 //! so each was a process spawn charged to every run whether or not any of its tests were selected.
 //! As modules of one binary they spawn once.
 //!
@@ -25,5 +25,6 @@ mod test_http_transport;
 mod test_mcp_binary_config;
 mod test_query_live;
 mod test_reporter_repro;
+mod test_sync_live;
 mod test_tool_live;
 mod test_ws_cli_guard;

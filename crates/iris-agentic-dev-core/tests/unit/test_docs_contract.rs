@@ -895,7 +895,7 @@ fn documented_tool_params() -> Vec<ParamMention> {
 /// from it cannot be passed — `stream_inspect`'s documented `max_chars` was never a field on the
 /// request struct, which means callers asking for 10 000 characters silently got 2 000.
 ///
-/// The schema now answers this for all 81 tools (113 FR-012). It used to answer for 50: the rest
+/// The schema now answers this for every registered tool (113 FR-012). It used to answer for 50: the rest
 /// advertised an open object, and this test fell through to grepping the handler body for the
 /// parameter name. That fallback is gone, and `the_schema_is_the_only_source_this_test_consults`
 /// keeps it gone — while it existed, "documented but undeclared" was a state the suite tolerated,

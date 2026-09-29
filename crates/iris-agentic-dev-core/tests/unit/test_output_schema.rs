@@ -126,8 +126,10 @@ const TOOLS_WITH_DECLARED_OUTPUT_SCHEMA: &[&str] = &[
     "extract_message_map_routing",
     // batch 21
     "iris_search",
-    // batch 22 — the 90th and last tool
+    // batch 22
     "check_config",
+    // batch 23 — save-sync
+    "iris_sync",
 ];
 
 /// Tools legitimately absent from the Merged toolset entirely (not "present but missing a
@@ -238,13 +240,13 @@ fn test_a_tool_without_a_declared_schema_reports_false_not_a_panic() {
 
 #[test]
 fn test_all_ninety_tools_are_declared() {
-    // User Story 1 (076-interface-modernization) closes here: every one of the 90
+    // User Story 1 (076-interface-modernization) closes here: every one of the 91
     // registered tools across both toolsets has a real `output_schema` attribute. If this
     // fails, either a new tool was added without a schema, or this count needs updating —
     // check `output_schemas.rs`'s batch history before assuming either.
     assert_eq!(
         TOOLS_WITH_DECLARED_OUTPUT_SCHEMA.len(),
-        90,
-        "expected exactly 90 declared tools"
+        91,
+        "expected exactly 91 declared tools"
     );
 }

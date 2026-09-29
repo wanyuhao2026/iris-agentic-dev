@@ -757,6 +757,9 @@ fn tool_to_category(tool_name: &str) -> Option<crate::iris::workspace_config::To
     let base = tool_name.split(':').next().unwrap_or(tool_name);
     Some(match base {
         "iris_compile" => ToolCategory::Compile,
+        // Save-sync: uploads a document and compiles it — the same write iris_compile
+        // performs, reached from a save hook.
+        "iris_sync" => ToolCategory::Compile,
         "iris_execute" => ToolCategory::Execute,
         "iris_query" => ToolCategory::Query,
         "iris_search" | "iris_symbols" | "iris_symbols_local" => ToolCategory::Search,

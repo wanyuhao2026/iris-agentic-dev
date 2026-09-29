@@ -72,6 +72,35 @@ pub struct WorkspaceConfig {
     /// drop globals, etc.). Requires `write_tools_enabled = true` — setting this `true`
     /// while `write_tools_enabled = false` is refused at startup with DESTRUCTIVE_REQUIRES_WRITES.
     pub destructive_tools_enabled: Option<bool>,
+    /// Save-sync tuning for the `iris_sync` tool / `sync` subcommand: compile flags and
+    /// the local→server web-root mapping used to turn a local `src/...` path into a
+    /// CSP document name like `/dthealth/web/csp/x.csp`. See `SyncConfig`.
+    pub sync: Option<SyncConfig>,
+}
+
+/// `[sync]` block of `.iris-agentic-dev.toml`.
+///
+/// The web-root mapping is explicit configuration rather than auto-discovery because
+/// the server this was built against (Caché 2016.2.3) answers nothing useful on
+/// `/cspapps` — guessing `src/jquery` → a server path would silently upload to the
+/// wrong place. An unmapped web root is refused with `NOT_SYNCABLE` instead.
+#[derive(Debug, Deserialize, Default, Clone)]
+pub struct SyncConfig {
+    /// Compile flags for cls/mac/inc/csp documents after upload. Default "cuk".
+    pub flags: Option<String>,
+    /// Local directory (relative to the workspace root) → server web root.
+    /// `[[sync.web_roots]] local = "src/dthealth/web" server = "/dthealth/web"`
+    #[serde(default)]
+    pub web_roots: Vec<WebRootMapping>,
+}
+
+/// One `[[sync.web_roots]]` row.
+#[derive(Debug, Deserialize, Default, Clone)]
+pub struct WebRootMapping {
+    /// Local directory, relative to the workspace root, using forward slashes.
+    pub local: String,
+    /// Server web root, with a leading slash, e.g. "/dthealth/web".
+    pub server: String,
 }
 
 /// Connection role for fleet/operate mode instances.
@@ -1172,6 +1201,7 @@ mod tests {
             enabled_tools: vec![],
             write_tools_enabled: None,
             destructive_tools_enabled: None,
+            sync: None,
         };
         let conn = workspace_config_to_connection(&cfg, "USER");
         assert!(conn.is_some(), "host config should produce connection");
@@ -1198,6 +1228,7 @@ mod tests {
             enabled_tools: vec![],
             write_tools_enabled: None,
             destructive_tools_enabled: None,
+            sync: None,
         };
         let conn = workspace_config_to_connection(&cfg, "USER");
         let container_env = std::env::var("IRIS_CONTAINER").ok();
@@ -1225,6 +1256,7 @@ mod tests {
             enabled_tools: vec![],
             write_tools_enabled: None,
             destructive_tools_enabled: None,
+            sync: None,
         };
         let conn = workspace_config_to_connection(&cfg, "USER");
         assert!(conn.is_none());
@@ -1272,6 +1304,7 @@ mod tests {
             enabled_tools: vec![],
             write_tools_enabled: None,
             destructive_tools_enabled: None,
+            sync: None,
         };
         let conn = workspace_config_to_connection(&cfg, "USER").unwrap();
         assert!(
@@ -1302,6 +1335,7 @@ mod tests {
             enabled_tools: vec![],
             write_tools_enabled: None,
             destructive_tools_enabled: None,
+            sync: None,
         };
         let conn = workspace_config_to_connection(&cfg, "USER");
         let container_env = std::env::var("IRIS_CONTAINER").ok();
@@ -1338,6 +1372,7 @@ mod tests {
             enabled_tools: vec![],
             write_tools_enabled: None,
             destructive_tools_enabled: None,
+            sync: None,
         };
         let conn = workspace_config_to_connection(&cfg, "USER");
         let ns_env = std::env::var("IRIS_NAMESPACE").ok();
@@ -1373,6 +1408,7 @@ mod tests {
             enabled_tools: vec![],
             write_tools_enabled: None,
             destructive_tools_enabled: None,
+            sync: None,
         };
         let conn = workspace_config_to_connection(&cfg, "USER");
         std::env::remove_var("IRIS_CONTAINER");

@@ -47,13 +47,13 @@ use output_schemas::{
     IrisProductionItemResponse, IrisProductionResponse, IrisQueryResponse,
     IrisRemoveServerResponse, IrisSearchResponse, IrisSelectContainerResponse, IrisServersResponse,
     IrisSourceControlResponse, IrisStartSandboxResponse, IrisSymbolsLocalResponse,
-    IrisSymbolsResponse, IrisTableInfoResponse, IrisTestResponse, IrisTestServerResponse,
-    IrisWsCloseResponse, IrisWsExecResponse, IrisWsOpenResponse, JournalSearchResponse,
-    KbIndexResponse, KbRecallResponse, KbResponse, MermaidClassResponse, MermaidProductionResponse,
-    MyAccessResponse, QueryAuditLogResponse, ResolveDynamicDispatchResponse,
-    ResolveStorageResponse, SkillCommunityListResponse, SkillCommunityResponse,
-    SkillDescribeResponse, SkillForgetResponse, SkillListResponse, SkillResponse,
-    SkillSearchResponse, StreamInspectResponse, TelemetryExportTraceResponse,
+    IrisSymbolsResponse, IrisSyncResponse, IrisTableInfoResponse, IrisTestResponse,
+    IrisTestServerResponse, IrisWsCloseResponse, IrisWsExecResponse, IrisWsOpenResponse,
+    JournalSearchResponse, KbIndexResponse, KbRecallResponse, KbResponse, MermaidClassResponse,
+    MermaidProductionResponse, MyAccessResponse, QueryAuditLogResponse,
+    ResolveDynamicDispatchResponse, ResolveStorageResponse, SkillCommunityListResponse,
+    SkillCommunityResponse, SkillDescribeResponse, SkillForgetResponse, SkillListResponse,
+    SkillResponse, SkillSearchResponse, StreamInspectResponse, TelemetryExportTraceResponse,
     TelemetryQueryResponse, ToolError,
 };
 
@@ -94,6 +94,7 @@ pub mod server_tools;
 pub mod skills_tools;
 pub mod storage_guard;
 pub mod symbols_local;
+pub mod sync;
 pub mod write_gate;
 pub mod ws_tools;
 pub mod xdata_flow;
@@ -112,16 +113,16 @@ pub use scm::{ScmAction, ScmParams};
 /// happened and how it's now derived instead of hand-maintained.)
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Toolset {
-    /// 84 tools — 93 total `#[tool]` methods minus the 9 that are Merged-tier-only
+    /// 85 tools — 94 total `#[tool]` methods minus the 9 that are Merged-tier-only
     /// dispatchers (iris_admin, iris_debug, iris_containers, iris_get_log, iris_global,
     /// iris_execute_method, iris_message_body, iris_business_rule_info,
     /// iris_production_diff — added by later specs and deliberately scoped to Merged
     /// rather than the original tool surface). Default when `IRIS_TOOLSET` is unset.
     Baseline,
-    /// 80 tools — Baseline (84) minus the 4 stub tools (skill_propose/skill_optimize/
+    /// 81 tools — Baseline (85) minus the 4 stub tools (skill_propose/skill_optimize/
     /// skill_share/skill_community_install).
     Nostub,
-    /// 81 tools — 93 total minus the 4 stubs minus 8 tools replaced by 2 consolidated
+    /// 82 tools — 94 total minus the 4 stubs minus 8 tools replaced by 2 consolidated
     /// dispatchers (4 debug_* tools → iris_debug; agent_info/iris_list_containers/
     /// iris_select_container/iris_start_sandbox → iris_containers). The 9
     /// Merged-tier-only dispatchers from Baseline's note above are present here, which
@@ -4933,6 +4934,23 @@ impl IrisTools {
     }
 
     #[tool(
+        description = "Upload a local file to the server and compile it when the type needs compiling — the VS Code ObjectScript plugin's save-on-write behavior, for agent-driven development. `.cls`/`.mac`/`.int`/`.inc`/`.csp` upload+compile; static web files (`.js`/`.css`/`.html`/`.svg`/`.json`) upload only. Path mapping (relative to the workspace root): `src/ABN/X.cls` → `ABN.X.cls` (the `Class` declaration wins when present), `src/Nur/F.inc` → `Nur.F.inc`, `src/addloc.mac` → `addloc.mac`, web files via `[[sync.web_roots]]` in .iris-agentic-dev.toml — an unmapped web root is refused with NOT_SYNCABLE, never a guess. Compile errors return COMPILE_ERROR with the full compiler console so the local file can be fixed and re-synced. `server` (optional): name of a registered IRIS instance. If omitted, uses the default connection. Use `iris_servers` to list available instances.",
+        output_schema = output_schemas::oneof_output_schema::<IrisSyncResponse>()
+    )]
+    async fn iris_sync(
+        &self,
+        Parameters(p): Parameters<sync::SyncParams>,
+    ) -> Result<CallToolResult, McpError> {
+        let iris = self.resolve_server(p.server.as_deref()).await?;
+        let namespace = resolve_namespace(p.namespace.as_deref(), &iris.namespace).to_string();
+        tracing::info!(namespace = %namespace, path = %p.path, "iris_sync");
+        let client = self.http_client();
+        let result = sync::handle_iris_sync(&iris, client, p, &namespace).await;
+        self.record_call("iris_sync", result.is_ok());
+        result
+    }
+
+    #[tool(
         description = "Execute SQL against IRIS via Atelier REST. mode=\"read\" (default): SELECT only, destructive SQL blocked unless force=true. mode=\"explain\": returns the IRIS query plan for a SELECT (plan_text, query_hash), no rows. mode=\"count\": returns a row count for `table` or `query` without transferring rows. mode=\"write\": executes INSERT/UPDATE/DELETE/CALL/TRUNCATE (Execute-gated, blocked on mcpTemplate=live/test); UPDATE/DELETE are pre-checked against max_rows_affected (default 1000, max 10000) before executing. Skill: objectscript-sql-patterns for IRIS SQL quirks. `server` (optional): name of a registered IRIS instance. If omitted, uses the default connection. Use `iris_servers` to list available instances.",
         output_schema = output_schemas::oneof_output_schema::<IrisQueryResponse>()
     )]
@@ -9605,8 +9623,8 @@ impl ServerHandler for IrisTools {
                     // refused, not that they made a typo. And ahead of `tool_router.call`, so a
                     // rejected call never enters the handler — nothing half-applies.
                     //
-                    // One site for all 81 tools, off the advertised schema. A per-handler check is
-                    // one the eighty-second tool forgets.
+                    // One site for every registered tool, off the advertised schema. A
+                    // per-handler check is one the next tool forgets.
                     let advertised = self.accepted_params.get(request.name.as_ref());
                     if let Some(accepted) = advertised {
                         let unknown =
@@ -11543,6 +11561,7 @@ impl IrisTools {
         dispatch!("iris_symbols_local", SymbolsLocalParams, iris_symbols_local);
         dispatch!("iris_get_log", GetLogParams, iris_get_log);
         dispatch!("iris_doc", IrisDocParams, iris_doc);
+        dispatch!("iris_sync", sync::SyncParams, iris_sync);
         dispatch!("iris_info", crate::tools::info::InfoParams, iris_info);
         dispatch!(
             "iris_search",

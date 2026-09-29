@@ -60,6 +60,7 @@ mod test_sm_e2e;
 mod test_sql_power_live;
 mod test_sql_safety_e2e;
 mod test_sql_translate_e2e;
+mod test_sync_live;
 mod test_telemetry_live;
 mod test_terminal_compat_096;
 mod test_trace_export_live;

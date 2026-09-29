@@ -1,7 +1,7 @@
 //! `tool --list` and `tool <name> --schema`: discovery for a caller that has only a shell.
 //!
 //! The point of these two flags is a tool surface at almost no context cost — 82 names and
-//! summaries instead of the 104 KB an MCP `tools/list` costs. Two properties have to hold for that
+//! summaries instead of the 107 KB an MCP `tools/list` costs. Two properties have to hold for that
 //! to be worth anything, and both are asserted here by spawning the real binary:
 //!
 //! * **No connection.** Every command runs through `clean_command`, which strips every

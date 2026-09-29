@@ -515,6 +515,9 @@ pub const CLASSIFICATION: &[ToolClass] = &[
     wr("iris_start_sandbox"),
     // Executes test classes in IRIS, so it runs arbitrary application code.
     wr("iris_test"),
+    // Uploads a document and compiles it — the same write iris_compile performs,
+    // reached from a save hook rather than a compile call.
+    wr("iris_sync"),
     // The complete bypass of the iris_execute gate: open a session, then run anything.
     wr("iris_ws_exec"),
     wr("kb_index"),

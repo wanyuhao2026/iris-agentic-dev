@@ -182,7 +182,7 @@ fn mcp_server_tools_list_returns_23_tools() {
 /// 076-interface-modernization User Story 4: `tools/list` pagination works end-to-end over
 /// the real JSON-RPC wire, not just via `paginate_tool_list`'s own pure-function unit tests
 /// (`test_list_tools_pagination.rs`). `IRIS_LIST_TOOLS_PAGE_SIZE=5` forces real pagination
-/// on the Baseline toolset's 81 tools; paging through with `cursor` must reconstruct the
+/// on the Baseline toolset's 85 tools; paging through with `cursor` must reconstruct the
 /// exact same set `mcp_server_tools_list_returns_23_tools` sees in one unpaginated call,
 /// with no duplicate and no omission.
 #[test]

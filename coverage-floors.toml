@@ -125,6 +125,10 @@ overall = 88
 "src/tools/server_tools.rs"           = 83
 "src/tools/skills_tools.rs"           = 37
 "src/tools/symbols_local.rs"          = 57
+# sync.rs: unit tests cover the pure mapping/encoding/classification logic; the
+# upload/compile body needs a live Atelier server (test_sync_live, #[ignore]),
+# so unit-only tops out around 48%.
+"src/tools/sync.rs"                   = 40
 "src/tools/write_gate.rs"             = 93
 "src/tools/ws_tools.rs"               = 84
 "src/tools/xdata_flow.rs"             = 58
