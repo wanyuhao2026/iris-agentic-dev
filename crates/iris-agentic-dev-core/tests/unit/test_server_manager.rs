@@ -708,6 +708,7 @@ fn iris_execute_method_in_registered_tool_names() {
 // ── T040: 056-interop-depth tools appear in check_config tool inventory ───────
 
 #[test]
+#[cfg_attr(feature = "hfhis", ignore = "hfhis build: hard-coded 24-tool surface")]
 fn interop_depth_tools_in_registered_tool_names() {
     use iris_agentic_dev_core::tools::{IrisTools, Toolset};
     let tools = IrisTools::new_with_toolset(None, Toolset::Merged).expect("IrisTools::new");

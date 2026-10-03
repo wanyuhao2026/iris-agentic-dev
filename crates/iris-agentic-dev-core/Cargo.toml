@@ -10,6 +10,9 @@ license.workspace = true
 
 [features]
 testing = []
+# hfhis-toolset branch: hard-codes the 24-tool surface for the hfhis-8.17 project build.
+# Off by default; master and all other builds are unaffected.
+hfhis = []
 
 [dependencies]
 rmcp.workspace = true

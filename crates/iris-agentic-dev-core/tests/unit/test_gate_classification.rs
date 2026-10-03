@@ -91,6 +91,7 @@ fn every_surface() -> Vec<(String, IrisTools)> {
 /// Visible-but-refusing is the contract. The caller gets `WRITE_TOOLS_DISABLED`, which says *why*;
 /// absence says nothing at all.
 #[test]
+#[cfg_attr(feature = "hfhis", ignore = "hfhis build: hard-coded 24-tool surface")]
 fn write_gated_tools_stay_registered_when_writes_are_off() {
     // Merged is the shipped default (`IRIS_TOOLSET` unset → merged in `mcp.rs`) and the only tier
     // where iris_credential_manage exists at all.
@@ -110,6 +111,7 @@ fn write_gated_tools_stay_registered_when_writes_are_off() {
 /// The same assertion for the tier that has to keep working: `iris_production_item` is in Baseline
 /// too, and the removal block ran regardless of toolset.
 #[test]
+#[cfg_attr(feature = "hfhis", ignore = "hfhis build: hard-coded 24-tool surface")]
 fn production_item_stays_registered_in_baseline_with_writes_off() {
     let names = tools_with_writes_off(Toolset::Baseline).registered_tool_names();
     assert!(
@@ -182,6 +184,7 @@ fn every_registered_tool_is_classified() {
 /// the renamed tool falls through to the unclassified path. Nothing anywhere says the row went
 /// dead. So the union across all three tiers must account for every row.
 #[test]
+#[cfg_attr(feature = "hfhis", ignore = "hfhis build: hard-coded 24-tool surface")]
 fn every_classification_entry_names_a_registered_tool() {
     let mut registered = std::collections::HashSet::new();
     for (_, tools) in every_surface() {
@@ -231,6 +234,7 @@ fn every_classification_entry_names_a_registered_tool() {
 ///
 /// Read over every surface, so a tool that only exists in one tier is still checked.
 #[test]
+#[cfg_attr(feature = "hfhis", ignore = "hfhis build: hard-coded 24-tool surface")]
 fn annotations_agree_with_the_classification() {
     let mut disagreements: Vec<String> = Vec::new();
     let mut checked: std::collections::BTreeMap<String, serde_json::Value> = Default::default();

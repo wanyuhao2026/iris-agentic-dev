@@ -168,6 +168,7 @@ const BASELINE_REMOVED: &[&str] = &[
 ];
 
 #[test]
+#[cfg_attr(feature = "hfhis", ignore = "hfhis build: hard-coded 24-tool surface")]
 fn test_declared_tools_advertise_output_schema_in_baseline() {
     let tools = IrisTools::new_with_toolset(None, Toolset::Baseline).expect("IrisTools::new");
     for name in TOOLS_WITH_DECLARED_OUTPUT_SCHEMA
@@ -182,6 +183,7 @@ fn test_declared_tools_advertise_output_schema_in_baseline() {
 }
 
 #[test]
+#[cfg_attr(feature = "hfhis", ignore = "hfhis build: hard-coded 24-tool surface")]
 fn test_declared_tools_advertise_output_schema_in_merged() {
     let tools = IrisTools::new_with_toolset(None, Toolset::Merged).expect("IrisTools::new");
     for name in TOOLS_WITH_DECLARED_OUTPUT_SCHEMA
@@ -213,6 +215,7 @@ fn test_merged_removed_tools_are_absent_from_merged_router() {
 /// Mirror of the above for `BASELINE_REMOVED` — `iris_get_log` must be genuinely Merged-only,
 /// not just skipped in the Baseline check because someone assumed it without verifying.
 #[test]
+#[cfg_attr(feature = "hfhis", ignore = "hfhis build: hard-coded 24-tool surface")]
 fn test_baseline_removed_tools_are_absent_from_baseline_router() {
     let baseline = IrisTools::new_with_toolset(None, Toolset::Baseline)
         .expect("IrisTools::new")

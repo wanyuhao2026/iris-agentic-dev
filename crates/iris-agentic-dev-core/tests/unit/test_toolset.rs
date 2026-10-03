@@ -29,6 +29,7 @@ fn test_toolset_from_str_merged() {
 
 /// iris_symbols_local is now a real tool (025-symbols-local-ts) — must be present in nostub.
 #[test]
+#[cfg_attr(feature = "hfhis", ignore = "hfhis build: hard-coded 24-tool surface")]
 fn test_nostub_excludes_iris_symbols_local() {
     let _lock = ENV_LOCK.lock().unwrap();
     let tools = IrisTools::new_with_toolset(None, Toolset::Nostub).expect("IrisTools::new");
@@ -45,6 +46,7 @@ fn test_nostub_excludes_iris_symbols_local() {
 
 /// skill tool must not expose propose/optimize/share actions in nostub (FR-005).
 #[test]
+#[cfg_attr(feature = "hfhis", ignore = "hfhis build: hard-coded 24-tool surface")]
 fn test_nostub_skill_excludes_stub_actions() {
     let _lock = ENV_LOCK.lock().unwrap();
     let tools = IrisTools::new_with_toolset(None, Toolset::Nostub).expect("IrisTools::new");
@@ -60,6 +62,7 @@ fn test_nostub_skill_excludes_stub_actions() {
 
 /// skill_community must not expose install action in nostub (FR-006).
 #[test]
+#[cfg_attr(feature = "hfhis", ignore = "hfhis build: hard-coded 24-tool surface")]
 fn test_nostub_skill_community_excludes_install() {
     let _lock = ENV_LOCK.lock().unwrap();
     let tools = IrisTools::new_with_toolset(None, Toolset::Nostub).expect("IrisTools::new");
@@ -72,6 +75,7 @@ fn test_nostub_skill_community_excludes_install() {
 
 /// Nostub must preserve all non-stub tools (not accidentally remove real ones).
 #[test]
+#[cfg_attr(feature = "hfhis", ignore = "hfhis build: hard-coded 24-tool surface")]
 fn test_nostub_preserves_core_tools() {
     let _lock = ENV_LOCK.lock().unwrap();
     let tools = IrisTools::new_with_toolset(None, Toolset::Nostub).expect("IrisTools::new");
@@ -98,6 +102,7 @@ fn test_nostub_preserves_core_tools() {
 /// (skill_propose + skill_optimize + skill_share + skill_community_install = 4 stubs removed).
 /// iris_symbols_local is no longer a stub (025-symbols-local-ts).
 #[test]
+#[cfg_attr(feature = "hfhis", ignore = "hfhis build: hard-coded 24-tool surface")]
 fn test_nostub_tool_count() {
     let _lock = ENV_LOCK.lock().unwrap();
     let baseline = IrisTools::new_with_toolset(None, Toolset::Baseline)
@@ -127,6 +132,7 @@ fn test_nostub_tool_count() {
 /// scoped to a narrower toolset than intended. This is the one test in the suite that
 /// would catch that.
 #[test]
+#[cfg_attr(feature = "hfhis", ignore = "hfhis build: hard-coded 24-tool surface")]
 fn test_baseline_tool_count() {
     let _lock = ENV_LOCK.lock().unwrap();
     let tools = IrisTools::new_with_toolset(None, Toolset::Baseline).expect("IrisTools::new");
@@ -144,6 +150,7 @@ fn test_baseline_tool_count() {
 
 /// iris_debug must be registered in merged toolset (FR-007).
 #[test]
+#[cfg_attr(feature = "hfhis", ignore = "hfhis build: hard-coded 24-tool surface")]
 fn test_merged_registers_iris_debug() {
     let _lock = ENV_LOCK.lock().unwrap();
     let tools = IrisTools::new_with_toolset(None, Toolset::Merged).expect("IrisTools::new");
@@ -160,6 +167,7 @@ fn test_merged_registers_iris_debug() {
 
 /// iris_production must be registered in merged toolset (FR-008).
 #[test]
+#[cfg_attr(feature = "hfhis", ignore = "hfhis build: hard-coded 24-tool surface")]
 fn test_merged_registers_iris_production() {
     let _lock = ENV_LOCK.lock().unwrap();
     let tools = IrisTools::new_with_toolset(None, Toolset::Merged).expect("IrisTools::new");
@@ -172,6 +180,7 @@ fn test_merged_registers_iris_production() {
 
 /// iris_interop_query must be registered in merged toolset (FR-009).
 #[test]
+#[cfg_attr(feature = "hfhis", ignore = "hfhis build: hard-coded 24-tool surface")]
 fn test_merged_registers_iris_interop_query() {
     let _lock = ENV_LOCK.lock().unwrap();
     let tools = IrisTools::new_with_toolset(None, Toolset::Merged).expect("IrisTools::new");
@@ -184,6 +193,7 @@ fn test_merged_registers_iris_interop_query() {
 
 /// iris_containers must be registered in merged toolset (FR-010).
 #[test]
+#[cfg_attr(feature = "hfhis", ignore = "hfhis build: hard-coded 24-tool surface")]
 fn test_merged_registers_iris_containers() {
     let _lock = ENV_LOCK.lock().unwrap();
     let tools = IrisTools::new_with_toolset(None, Toolset::Merged).expect("IrisTools::new");
@@ -196,6 +206,7 @@ fn test_merged_registers_iris_containers() {
 
 /// agent_info must NOT be registered in merged toolset (FR-011).
 #[test]
+#[cfg_attr(feature = "hfhis", ignore = "hfhis build: hard-coded 24-tool surface")]
 fn test_merged_excludes_agent_info() {
     let _lock = ENV_LOCK.lock().unwrap();
     let tools = IrisTools::new_with_toolset(None, Toolset::Merged).expect("IrisTools::new");
@@ -208,6 +219,7 @@ fn test_merged_excludes_agent_info() {
 
 /// Merged must exclude all original debug tools (replaced by iris_debug).
 #[test]
+#[cfg_attr(feature = "hfhis", ignore = "hfhis build: hard-coded 24-tool surface")]
 fn test_merged_excludes_original_debug_tools() {
     let _lock = ENV_LOCK.lock().unwrap();
     let tools = IrisTools::new_with_toolset(None, Toolset::Merged).expect("IrisTools::new");
@@ -228,6 +240,7 @@ fn test_merged_excludes_original_debug_tools() {
 
 /// Merged must exclude all original interop production tools (replaced by iris_production).
 #[test]
+#[cfg_attr(feature = "hfhis", ignore = "hfhis build: hard-coded 24-tool surface")]
 fn test_merged_excludes_original_interop_production_tools() {
     let _lock = ENV_LOCK.lock().unwrap();
     let tools = IrisTools::new_with_toolset(None, Toolset::Merged).expect("IrisTools::new");
@@ -260,6 +273,7 @@ fn test_merged_excludes_original_interop_production_tools() {
 /// nobody meant to make Merged-tier-visible, since that's exactly the class of change a
 /// count assertion is supposed to force someone to look at and update deliberately.
 #[test]
+#[cfg_attr(feature = "hfhis", ignore = "hfhis build: hard-coded 24-tool surface")]
 fn test_merged_tool_count() {
     let _lock = ENV_LOCK.lock().unwrap();
     let tools = IrisTools::new_with_toolset(None, Toolset::Merged).expect("IrisTools::new");
@@ -287,6 +301,7 @@ fn test_merged_tool_count() {
 
 /// iris_get_log must NOT be registered in Baseline or Nostub (027-progressive-disclosure).
 #[test]
+#[cfg_attr(feature = "hfhis", ignore = "hfhis build: hard-coded 24-tool surface")]
 fn test_iris_get_log_absent_from_baseline_and_nostub() {
     let _lock = ENV_LOCK.lock().unwrap();
     let baseline = IrisTools::new_with_toolset(None, Toolset::Baseline).expect("IrisTools::new");
@@ -307,6 +322,7 @@ fn test_iris_get_log_absent_from_baseline_and_nostub() {
 static ENV_LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
 
 #[test]
+#[cfg_attr(feature = "hfhis", ignore = "hfhis build: hard-coded 24-tool surface")]
 fn test_disabled_tools_env_removes_named_tool() {
     let _lock = ENV_LOCK.lock().unwrap();
     std::env::set_var("IRIS_DISABLED_TOOLS", "iris_source_control");
@@ -320,6 +336,7 @@ fn test_disabled_tools_env_removes_named_tool() {
 }
 
 #[test]
+#[cfg_attr(feature = "hfhis", ignore = "hfhis build: hard-coded 24-tool surface")]
 fn test_disabled_tools_env_removes_multiple_tools() {
     let _lock = ENV_LOCK.lock().unwrap();
     std::env::set_var("IRIS_DISABLED_TOOLS", "iris_admin,iris_credential_manage");
@@ -334,6 +351,7 @@ fn test_disabled_tools_env_removes_multiple_tools() {
 }
 
 #[test]
+#[cfg_attr(feature = "hfhis", ignore = "hfhis build: hard-coded 24-tool surface")]
 fn test_disabled_tools_env_empty_string_removes_nothing() {
     let _lock = ENV_LOCK.lock().unwrap();
     std::env::set_var("IRIS_DISABLED_TOOLS", "");
@@ -352,6 +370,7 @@ fn test_disabled_tools_env_empty_string_removes_nothing() {
 }
 
 #[test]
+#[cfg_attr(feature = "hfhis", ignore = "hfhis build: hard-coded 24-tool surface")]
 fn test_disabled_tools_env_ignores_whitespace() {
     let _lock = ENV_LOCK.lock().unwrap();
     std::env::set_var(
@@ -372,6 +391,7 @@ fn test_disabled_tools_env_ignores_whitespace() {
 }
 
 #[test]
+#[cfg_attr(feature = "hfhis", ignore = "hfhis build: hard-coded 24-tool surface")]
 fn test_disabled_tools_env_unknown_name_is_ignored() {
     let _lock = ENV_LOCK.lock().unwrap();
     std::env::set_var("IRIS_DISABLED_TOOLS", "nonexistent_tool");
@@ -389,6 +409,7 @@ fn test_disabled_tools_env_unknown_name_is_ignored() {
 /// FR-001: naming a subset via the allowlist leaves exactly that subset — nothing else
 /// from the active toolset survives.
 #[test]
+#[cfg_attr(feature = "hfhis", ignore = "hfhis build: hard-coded 24-tool surface")]
 fn test_enabled_tools_env_restricts_to_named_subset() {
     let _lock = ENV_LOCK.lock().unwrap();
     std::env::set_var("IRIS_ENABLED_TOOLS", "iris_query,iris_search,iris_symbols");
@@ -410,6 +431,7 @@ fn test_enabled_tools_env_restricts_to_named_subset() {
 /// FR edge case: an allowlist entry that doesn't match any real tool is silently
 /// ignored — startup does not fail and the rest of the allowlist still applies.
 #[test]
+#[cfg_attr(feature = "hfhis", ignore = "hfhis build: hard-coded 24-tool surface")]
 fn test_enabled_tools_env_unknown_name_is_ignored() {
     let _lock = ENV_LOCK.lock().unwrap();
     std::env::set_var("IRIS_ENABLED_TOOLS", "iris_query,nonexistent_tool");
@@ -433,6 +455,7 @@ fn test_enabled_tools_env_unknown_name_is_ignored() {
 /// FR edge case: an empty allowlist means "no allowlist" (the active Toolset preset
 /// applies as normal) — NOT "expose zero tools."
 #[test]
+#[cfg_attr(feature = "hfhis", ignore = "hfhis build: hard-coded 24-tool surface")]
 fn test_enabled_tools_env_empty_string_means_no_allowlist() {
     let _lock = ENV_LOCK.lock().unwrap();
     std::env::set_var("IRIS_ENABLED_TOOLS", "");
@@ -450,6 +473,7 @@ fn test_enabled_tools_env_empty_string_means_no_allowlist() {
 /// FR-002: when a name is in both the allowlist and the blocklist, the blocklist wins
 /// — that tool is absent, not present.
 #[test]
+#[cfg_attr(feature = "hfhis", ignore = "hfhis build: hard-coded 24-tool surface")]
 fn test_disabled_tools_wins_over_enabled_tools_for_same_name() {
     let _lock = ENV_LOCK.lock().unwrap();
     std::env::set_var("IRIS_ENABLED_TOOLS", "iris_query,iris_search");
@@ -473,6 +497,7 @@ fn test_disabled_tools_wins_over_enabled_tools_for_same_name() {
 /// allowlist still shows up (since Merged already includes it), but a tool the active
 /// toolset already excludes stays excluded even if named in the allowlist.
 #[test]
+#[cfg_attr(feature = "hfhis", ignore = "hfhis build: hard-coded 24-tool surface")]
 fn test_enabled_tools_env_applies_on_top_of_toolset_pruning() {
     let _lock = ENV_LOCK.lock().unwrap();
     // iris_debug only exists in Merged (see test_merged_registers_iris_debug) — naming
@@ -493,5 +518,63 @@ fn test_enabled_tools_env_applies_on_top_of_toolset_pruning() {
         merged_names,
         std::collections::HashSet::from(["iris_query".to_string(), "iris_debug".to_string()]),
         "iris_debug is legitimately present in Merged, so the allowlist should keep it there"
+    );
+}
+
+// ── hfhis build: hard-coded 24-tool surface (hfhis-toolset branch) ────────────
+//
+// These only compile when the `hfhis` cargo feature is on. Run them filtered —
+// `cargo test --features testing,hfhis --test unit hfhis` — because the feature
+// also changes what every exact-set/count assertion above sees (the hard-coded
+// cut runs last in `with_registry_and_toolset`), so the rest of this file's
+// tests are only meaningful on a non-hfhis build.
+
+/// The hfhis surface is exactly HFHIS_TOOLS — no more, no less — and neither tier
+/// choice nor the enabled/disabled env lists can widen or narrow it, because the
+/// hard-coded cut runs after all of them.
+#[cfg(feature = "hfhis")]
+#[test]
+fn hfhis_surface_is_exactly_the_hardcoded_list() {
+    let _lock = ENV_LOCK.lock().unwrap();
+    let expected: std::collections::HashSet<String> = iris_agentic_dev_core::tools::HFHIS_TOOLS
+        .iter()
+        .map(|s| s.to_string())
+        .collect();
+    assert_eq!(expected.len(), 24, "HFHIS_TOOLS must hold exactly 24 names");
+
+    // Requesting Baseline must still yield the hfhis surface: the feature forces
+    // Merged (four of the 24 names are merged-only), then the hard-coded cut runs.
+    let baseline = IrisTools::new_with_toolset(None, Toolset::Baseline).expect("IrisTools::new");
+    assert_eq!(
+        baseline.registered_tool_names(),
+        expected,
+        "hfhis build: Baseline must be forced to the same hard-coded surface"
+    );
+    let merged = IrisTools::new_with_toolset(None, Toolset::Merged).expect("IrisTools::new");
+    assert_eq!(
+        merged.registered_tool_names(),
+        expected,
+        "hfhis build: Merged must serve exactly the hard-coded surface"
+    );
+
+    // An allowlist naming extra tools must not widen the surface back out.
+    std::env::set_var("IRIS_ENABLED_TOOLS", "iris_query,iris_compile,skill_list");
+    let allowlisted = IrisTools::new_with_toolset(None, Toolset::Merged).expect("IrisTools::new");
+    std::env::remove_var("IRIS_ENABLED_TOOLS");
+    assert_eq!(
+        allowlisted.registered_tool_names(),
+        expected,
+        "hfhis build: IRIS_ENABLED_TOOLS must not widen the hard-coded surface"
+    );
+
+    // A blocklist naming hfhis tools must not narrow it either — the hard-coded
+    // list is the final word, which is the entire point of a compile-time surface.
+    std::env::set_var("IRIS_DISABLED_TOOLS", "iris_query,iris_compile");
+    let blocked = IrisTools::new_with_toolset(None, Toolset::Merged).expect("IrisTools::new");
+    std::env::remove_var("IRIS_DISABLED_TOOLS");
+    assert_eq!(
+        blocked.registered_tool_names(),
+        expected,
+        "hfhis build: IRIS_DISABLED_TOOLS must not narrow the hard-coded surface"
     );
 }

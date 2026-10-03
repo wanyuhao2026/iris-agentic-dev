@@ -13,6 +13,9 @@ license.workspace = true
 # flag the core crate's do, which is what CI and every documented test command pass. `testing` is
 # already on for the core dependency below unconditionally.
 testing = []
+# hfhis-toolset branch: forwarded to core, which prunes the tool surface to the
+# hard-coded 24-tool list for the hfhis-8.17 project build.
+hfhis = ["iris-agentic-dev-core/hfhis"]
 
 [[bin]]
 name = "iris-agentic-dev"

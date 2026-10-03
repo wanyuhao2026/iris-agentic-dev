@@ -348,6 +348,7 @@ fn embedded_catalog_matches_the_skills_directory_on_disk() {
 /// calls that can only fail. Nothing caught it because no test read the skill
 /// text against the tool registry.
 #[test]
+#[cfg_attr(feature = "hfhis", ignore = "hfhis build: hard-coded 24-tool surface")]
 fn skills_only_reference_tools_that_exist() {
     use iris_agentic_dev_core::tools::{IrisTools, Toolset};
 

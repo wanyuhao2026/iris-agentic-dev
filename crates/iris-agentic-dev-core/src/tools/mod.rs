@@ -149,6 +149,42 @@ impl Toolset {
     }
 }
 
+/// The hard-coded tool surface for the hfhis-8.17 project build (hfhis-toolset branch).
+///
+/// Only present when the `hfhis` cargo feature is on; `with_registry_and_toolset` prunes the
+/// router down to exactly these names after every other cut (toolset tier, no_skills,
+/// enabled_tools, disabled_tools), so on that build the list wins regardless of env vars or
+/// what a `.iris-agentic-dev.toml` asks for. Four of these (iris_debug, iris_get_log,
+/// iris_global, iris_execute_method) are Merged-tier-only, which is why the feature also
+/// forces `Toolset::Merged` — any other tier would prune them before this list is applied.
+#[cfg(feature = "hfhis")]
+pub const HFHIS_TOOLS: &[&str] = &[
+    "check_config",
+    "docs_introspect",
+    "find_subclass_implementations",
+    "global_preview",
+    "iris_compile",
+    "iris_debug",
+    "iris_doc",
+    "iris_doc_search",
+    "iris_execute",
+    "iris_execute_method",
+    "iris_generate",
+    "iris_get_log",
+    "iris_global",
+    "iris_info",
+    "iris_query",
+    "iris_search",
+    "iris_symbols",
+    "iris_symbols_local",
+    "iris_sync",
+    "iris_table_info",
+    "iris_test",
+    "journal_search",
+    "resolve_storage",
+    "stream_inspect",
+];
+
 /// One tool as `tool --list` and `tool <name> --schema` report it.
 ///
 /// Built by [`IrisTools::tool_catalogue`] from the router, so `description` and `input_schema` are
@@ -2694,6 +2730,21 @@ impl IrisTools {
         no_skills: bool,
         declared: write_gate::DeclaredGates,
     ) -> anyhow::Result<Self> {
+        // hfhis build: force the Merged tier no matter what the caller asked for — four of
+        // the HFHIS_TOOLS names (iris_debug, iris_get_log, iris_global, iris_execute_method)
+        // are pruned by every other tier, so the hard-coded list below could not be applied
+        // intact on Baseline/Nostub. The final HFHIS_TOOLS cut then narrows Merged's 82
+        // tools down to the 24 the hfhis-8.17 project serves.
+        #[cfg(feature = "hfhis")]
+        let toolset = {
+            if toolset != Toolset::Merged {
+                tracing::info!(
+                    requested = toolset.as_str(),
+                    "hfhis build: toolset forced to merged (HFHIS_TOOLS includes merged-only tools)"
+                );
+            }
+            Toolset::Merged
+        };
         // Clone config_path for load_pool before it may be moved into conn_state (072).
         let pool_config_path = config_path.clone();
         let client = Arc::new(IrisConnection::http_client()?);
@@ -2786,57 +2837,96 @@ impl IrisTools {
             }
         }
 
-        // Apply user-specified tool allowlist from IRIS_ENABLED_TOOLS env var or toml
-        // enabled_tools field (config loader sets the env var from toml before this runs).
-        // Comma-separated tool names — when non-empty, ONLY these remain, regardless of
-        // toolset (075-modular-tool-install, FR-001). Enforced through the same
-        // remove_route() primitive as everything else in this constructor (FR-003) — no
-        // second enforcement path. An empty list means "no allowlist" (FR edge case:
-        // does NOT mean "expose zero tools"). Runs before the disabled-tools block below
-        // so disabled always wins for a name in both (FR-002).
-        let enabled: Vec<String> = std::env::var("IRIS_ENABLED_TOOLS")
-            .unwrap_or_default()
-            .split(',')
-            .map(|s| s.trim().to_string())
-            .filter(|s| !s.is_empty())
-            .collect();
-        if !enabled.is_empty() {
-            let enabled_set: std::collections::HashSet<&str> =
-                enabled.iter().map(|s| s.as_str()).collect();
-            // Snapshot current route names before mutating — remove_route() while
-            // iterating router.list_all()'s own borrow would not compile, and this way
-            // an allowlist name that doesn't match any real route is simply never
-            // removed, matching disabled_tools' existing unknown-name tolerance.
+        // hfhis build: the env allowlist/blocklist below is skipped entirely. remove_route()
+        // is not reversible, so letting either run before the hard-coded HFHIS_TOOLS cut
+        // could only narrow the surface below the 24 names (an IRIS_ENABLED_TOOLS naming a
+        // subset shrank it to that subset's intersection with HFHIS_TOOLS — caught by
+        // hfhis_surface_is_exactly_the_hardcoded_list). On that build the hard-coded list
+        // is the only and final word on the tool surface, whatever env vars or a
+        // .iris-agentic-dev.toml say.
+        #[cfg(not(feature = "hfhis"))]
+        {
+            // Apply user-specified tool allowlist from IRIS_ENABLED_TOOLS env var or toml
+            // enabled_tools field (config loader sets the env var from toml before this runs).
+            // Comma-separated tool names — when non-empty, ONLY these remain, regardless of
+            // toolset (075-modular-tool-install, FR-001). Enforced through the same
+            // remove_route() primitive as everything else in this constructor (FR-003) — no
+            // second enforcement path. An empty list means "no allowlist" (FR edge case:
+            // does NOT mean "expose zero tools"). Runs before the disabled-tools block below
+            // so disabled always wins for a name in both (FR-002).
+            let enabled: Vec<String> = std::env::var("IRIS_ENABLED_TOOLS")
+                .unwrap_or_default()
+                .split(',')
+                .map(|s| s.trim().to_string())
+                .filter(|s| !s.is_empty())
+                .collect();
+            if !enabled.is_empty() {
+                let enabled_set: std::collections::HashSet<&str> =
+                    enabled.iter().map(|s| s.as_str()).collect();
+                // Snapshot current route names before mutating — remove_route() while
+                // iterating router.list_all()'s own borrow would not compile, and this way
+                // an allowlist name that doesn't match any real route is simply never
+                // removed, matching disabled_tools' existing unknown-name tolerance.
+                let current_names: Vec<String> = router
+                    .list_all()
+                    .into_iter()
+                    .map(|t| t.name.to_string())
+                    .collect();
+                for name in &current_names {
+                    if !enabled_set.contains(name.as_str()) {
+                        router.remove_route(name);
+                    }
+                }
+                tracing::info!(
+                    enabled = ?enabled,
+                    "iris-agentic-dev: tool allowlist applied — only these tools remain"
+                );
+            }
+
+            // Apply user-specified disabled tools from IRIS_DISABLED_TOOLS env var or toml
+            // disabled_tools field (config loader sets the env var from toml before this runs).
+            // Comma-separated tool names, e.g. "iris_source_control,iris_admin".
+            let disabled: Vec<String> = std::env::var("IRIS_DISABLED_TOOLS")
+                .unwrap_or_default()
+                .split(',')
+                .map(|s| s.trim().to_string())
+                .filter(|s| !s.is_empty())
+                .collect();
+            for name in &disabled {
+                router.remove_route(name.as_str());
+            }
+            if !disabled.is_empty() {
+                tracing::info!(disabled = ?disabled, "iris-agentic-dev: user-disabled tools removed");
+            }
+        }
+
+        // hfhis build: the final cut. The tier forcing above and the no_skills pass both
+        // ran already (both can only remove non-HFHIS_TOOLS names, so neither can narrow
+        // the surface), and the env allowlist/blocklist is skipped entirely in this build —
+        // so this hard-coded surface is what the router ends up with regardless of env
+        // vars or what a .iris-agentic-dev.toml asks for. The binary serves exactly these
+        // 24 tools wherever it is run from. Same remove_route() primitive as every other
+        // cut; an HFHIS_TOOLS name that no longer exists upstream is silently absent
+        // (unknown-name tolerance, same as the allowlist in non-hfhis builds), which the
+        // hfhis parity test catches at build time rather than at runtime.
+        #[cfg(feature = "hfhis")]
+        {
+            let keep: std::collections::HashSet<&str> = HFHIS_TOOLS.iter().copied().collect();
             let current_names: Vec<String> = router
                 .list_all()
                 .into_iter()
                 .map(|t| t.name.to_string())
                 .collect();
             for name in &current_names {
-                if !enabled_set.contains(name.as_str()) {
+                if !keep.contains(name.as_str()) {
                     router.remove_route(name);
                 }
             }
             tracing::info!(
-                enabled = ?enabled,
-                "iris-agentic-dev: tool allowlist applied — only these tools remain"
+                tools = HFHIS_TOOLS.len(),
+                "hfhis build: hard-coded tool surface applied — {} tools remain",
+                HFHIS_TOOLS.len()
             );
-        }
-
-        // Apply user-specified disabled tools from IRIS_DISABLED_TOOLS env var or toml
-        // disabled_tools field (config loader sets the env var from toml before this runs).
-        // Comma-separated tool names, e.g. "iris_source_control,iris_admin".
-        let disabled: Vec<String> = std::env::var("IRIS_DISABLED_TOOLS")
-            .unwrap_or_default()
-            .split(',')
-            .map(|s| s.trim().to_string())
-            .filter(|s| !s.is_empty())
-            .collect();
-        for name in &disabled {
-            router.remove_route(name.as_str());
-        }
-        if !disabled.is_empty() {
-            tracing::info!(disabled = ?disabled, "iris-agentic-dev: user-disabled tools removed");
         }
 
         let conn_state = match iris {
