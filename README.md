@@ -733,6 +733,7 @@ iris-agentic-dev --version                        # Print version
 | [docs/troubleshooting.md](docs/troubleshooting.md)             | Symptom table, CLI commands, verbose logging                                  |
 | [docs/ecosystem-integration.md](docs/ecosystem-integration.md) | Patterns for downstream projects and skill repos                              |
 | [docs/cursor-quickstart.md](docs/cursor-quickstart.md)         | Cursor IDE and Cursor CLI setup, fleet routing, vs VS Code + Copilot          |
+| [contrib/hfhis-cache/](contrib/hfhis-cache/README.md)          | Caché 2016.2.3 (Atelier v1) MCP server and skill pack for the hfhis project   |
 
 ---
 
