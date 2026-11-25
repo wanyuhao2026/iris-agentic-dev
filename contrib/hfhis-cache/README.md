@@ -240,7 +240,16 @@ All checks passed.
 保存钩子对 Claude Code 和 Codex 两种载荷都验过：`.md` 静默退出 0，坏的 `.cls` 输出德文编译
 错误并退出 1。
 
-本目录文件与部署副本逐字节一致。
+`skills/` 与 `mcp/` 和部署副本逐字节一致（133 个文件对逐一比对哈希），三处例外都是有意为之：
+
+- `.claude\skills\cache-ensemble-docs\references\docs.sqlite3`（86 MB）只在部署侧，不进仓库，
+  见上文重建方法。
+- `.agents\skills\cache-ensemble-docs` 和 `.agents\skills\hisui-frontend` 只有 `SKILL.md`，
+  内容是各自 `.claude` 版本的精简指针，把 `references/` 与 `scripts/` 的路径指向 `.claude`
+  一侧，这样 86 MB 语料和 53 个参考文件各只有一份。这两个技能不是本次新增的，结构沿用仓库
+  原有安排。
+
+其余 6 个新技能在两个技能树里都是完整副本。
 
 ## 已知遗留
 
