@@ -13,8 +13,8 @@ Node MCP 服务器，加上 8 个针对本项目实测过的技能。
 原项目里已有 `.tools/iris-agentic-dev.exe`（Rust 实现，50 MB，18 个 `iris_*` 工具）和 22 个
 技能目录。问题：
 
-- **exe 体积 50 MB**，且每次 `cache_execute` 都在命名空间里建临时类、清理失败，已经留下
-  **841 个 `IrisDevTmp.*` 残留类**。
+- **exe 体积 50 MB**，且每次 `cache_execute` 都在命名空间里建临时类、清理失败，留下了
+  **841 个 `IrisDevTmp.*` 残留类**（已清除，见下文「清理记录」）。
 - **22 个技能里 19 个是空目录**，剩下的 3 个中 `cache-xml-export` 还引用着不存在的工具名。
 - 上游 36 个技能里 **21 个在本环境完全用不上**：vector/AI、Embedded Python、MDX（本实例 0 个
   cube）、pgwire、7 个 Docker 技能、IRIS 产品文档、`iris_coverage`、JDBC 配置错误的
@@ -251,7 +251,16 @@ All checks passed.
 
 其余 6 个新技能在两个技能树里都是完整副本。
 
+## 清理记录
+
+旧 exe 留下的 **841 个 `IrisDevTmp.IrisDevRun<hex>` 临时类已全部删除**。删前确认过：命名统一
+（无例外）、零持久类、零外部子类、无 `^IrisDevTmp` 数据 global。执行方式是一条 `cache_execute`
+里用 `$System.OBJ.Delete` 逐个删，**0 错误，26.8 秒，只占 1 次 HTTP 请求**——841 次单独调用会
+把 300 个 license 单位耗光。
+
+结果核对：类文档数 34,197 → 33,356（正好少 841），`%Dictionary.CompiledClass` 剩余 0，
+包定义 `IrisDevTmp` 已消失，`^oddDEF("IrisDevTmp")` 为 0。
+
 ## 已知遗留
 
-- 命名空间里有 **841 个 `IrisDevTmp.*` 残留类**，是旧 exe 留下的。需要清理时先列清单再删。
 - 服务器 `DHC-APP` 的 `CacheV1.MCP.Run.cls` 是本工具安装的助手类，属于有意保留。
