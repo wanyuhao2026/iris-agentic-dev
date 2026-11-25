@@ -34,3 +34,10 @@ outputs/
 # Vendored from microsoft/winget-cli (MIT) and kept byte-identical to upstream, so a schema
 # update is a plain copy that diffs cleanly against the source (spec 152).
 packaging/winget/schemas/
+
+# Vendored from the hfhis-8.17 project (东华 iMedical 8.2.0) and deployed there byte-identical:
+# the same files are copied to .claude/skills/ and .agents/skills/ in that repository, so
+# formatting them here would break that identity and make the next re-copy a noisy change.
+# See contrib/hfhis-cache/README.md. The README that explains them is ours and stays gated.
+contrib/hfhis-cache/skills/
+contrib/hfhis-cache/mcp/

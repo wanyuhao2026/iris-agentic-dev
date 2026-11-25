@@ -13,7 +13,11 @@
     "target/**",
     "specs/**",
     "outputs/**",
-    "tests/e2e/results/**"
+    "tests/e2e/results/**",
+    // Vendored byte-identical from the hfhis-8.17 project, where the same files are deployed to
+    // .claude/skills/ and .agents/skills/. See contrib/hfhis-cache/README.md.
+    "contrib/hfhis-cache/skills/**",
+    "contrib/hfhis-cache/mcp/**"
   ],
   "config": {
     "default": true,

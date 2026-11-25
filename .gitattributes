@@ -1,0 +1,10 @@
+# Vendored trees under contrib/ are deployed byte-for-byte into the projects they come from,
+# and the two sides are compared by hash. core.autocrlf=true would rewrite LF to CRLF on the
+# next checkout, so the comparison would fail on a fresh clone even though nothing in the
+# source changed. -text turns every EOL conversion off for these paths: the bytes in the index
+# are the bytes on disk, on every platform.
+#
+# This is scoped to contrib/ on purpose. The rest of the repository keeps the normal
+# autocrlf behaviour, which is what the Windows working copies expect.
+contrib/hfhis-cache/skills/** -text
+contrib/hfhis-cache/mcp/** -text
