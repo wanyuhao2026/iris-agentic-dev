@@ -34,3 +34,10 @@ outputs/
 # Vendored from microsoft/winget-cli (MIT) and kept byte-identical to upstream, so a schema
 # update is a plain copy that diffs cleanly against the source (spec 152).
 packaging/winget/schemas/
+
+# Vendored from the JHIP project (智慧医工集成平台) and kept byte-identical, because the point of
+# the copy is the diff against this repo's own skills/skills/ — formatting it here would erase
+# the evidence and make the next re-copy a noisy change. See contrib/jhip-atelier-v4/README.md.
+# The README that explains them is NOT ignored: it is ours and stays under the gate.
+contrib/jhip-atelier-v4/skills/
+contrib/jhip-atelier-v4/mcp/

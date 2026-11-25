@@ -733,6 +733,7 @@ iris-agentic-dev --version                        # Print version
 | [docs/troubleshooting.md](docs/troubleshooting.md)             | Symptom table, CLI commands, verbose logging                                  |
 | [docs/ecosystem-integration.md](docs/ecosystem-integration.md) | Patterns for downstream projects and skill repos                              |
 | [docs/cursor-quickstart.md](docs/cursor-quickstart.md)         | Cursor IDE and Cursor CLI setup, fleet routing, vs VS Code + Copilot          |
+| [contrib/jhip-atelier-v4/](contrib/jhip-atelier-v4/README.md)  | Vendored Atelier v4 skill pack and v4-only MCP server from the JHIP project   |
 
 ---
 

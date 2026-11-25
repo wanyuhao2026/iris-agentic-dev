@@ -13,7 +13,11 @@
     "target/**",
     "specs/**",
     "outputs/**",
-    "tests/e2e/results/**"
+    "tests/e2e/results/**",
+    // Vendored byte-identical from the JHIP project; the README beside them explains why they
+    // are kept unformatted. See contrib/jhip-atelier-v4/README.md.
+    "contrib/jhip-atelier-v4/skills/**",
+    "contrib/jhip-atelier-v4/mcp/**"
   ],
   "config": {
     "default": true,
